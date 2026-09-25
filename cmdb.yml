@@ -1,0 +1,53 @@
+# cmdb.yml: the detailed record behind the short markdown docs in this repo.
+# Edit here; keep the .md files short. No secrets or account IDs.
+
+# ======================================================================
+# CONTENTS  (search for the key name, e.g. 'sources:')
+#
+#   updated            last edit date
+#   sources            every data source, how it is produced, licence
+#   anomalies          planted ground-truth anomalies for the ML use cases
+#   pipeline           raw -> Bronze -> Silver -> Gold, and where each lives
+#   status             what exists today
+# ======================================================================
+
+updated: "2026-09-25"
+
+# ──────────── sources ────────────
+sources:
+  generated:
+    - {name: stores, what: "~40 stores across regions, channels (store, online)"}
+    - {name: products, what: "~2,000 SKUs in categories with cost and list price"}
+    - {name: cashiers, what: "pseudonymous staff IDs per store, no names"}
+    - {name: pos_sales, what: "daily transactions with seasonality, weekends, promotions, holidays"}
+    - {name: refunds, what: "linked to sales where possible; some without receipt"}
+    - {name: general_ledger, what: "journal lines derived from sales, refunds, costs; reconciles by design"}
+    - {name: budget, what: "prior year x growth assumptions, by store and month"}
+  real:
+    - {name: fx_rates, source: "European Central Bank euro reference rates", licence: "free reuse with attribution", how: "small snapshot CSV committed to the repo"}
+    - {name: holidays, source: "computed in code (fixed dates + Easter)", licence: "n/a"}
+  rules:
+    - "No real personal, customer or card data."
+    - "Generator is seeded, so every run is reproducible."
+    - "Nothing is downloaded at runtime: the workspace has no internet egress."
+
+# ──────────── anomalies ────────────
+anomalies:
+  purpose: "Ground truth for the refund & margin leakage model"
+  planned:
+    - "One cashier at one store: no-receipt refunds ramping up from week 38"
+    - "One store: discount rate creeping up, margin erosion"
+    - "A few GL postings that do not match sub-ledger totals (reconciliation breaks)"
+
+# ──────────── pipeline ────────────
+pipeline:
+  landing: "Unity Catalog volume on the governed bucket (raw files)"
+  bronze: "Auto Loader, append-only, schema captured"
+  silver: "typed, deduplicated, validated"
+  gold: "certified finance tables: revenue, refunds, margin, variance"
+  deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
+  compute: "finance-small cluster policy (auto-terminating, small, spot)"
+
+# ──────────── status ────────────
+status:
+  - {date: "2026-09-25", what: "Public repo created; scaffold only"}

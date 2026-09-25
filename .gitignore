@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Databricks bundle local state
+.databricks/
+
+# Generated data never goes in Git
+data/
+*.parquet
+*.csv
+!reference/*.csv
+
+# Secrets and local config
+.env
+.env.*
+*.pem
+.databrickscfg
