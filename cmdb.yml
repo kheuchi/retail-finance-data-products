@@ -77,7 +77,7 @@ toolchain:
   databricks_cli: "v1.18.0 binary installed in ~/.local/bin on 2026-09-26 (no sudo)"
   ci: "ci.yml: ruff + pytest on Python 3.12, bundle validate; deploy.yml: manual, typed 'deploy', optional job run"
   auth: "service principal terraform-platform; DATABRICKS_CLIENT_ID variable + DATABRICKS_CLIENT_SECRET secret"
-  runtime: "wheel with no dependencies; numpy/pandas/pyspark come from Databricks Runtime 17.3 LTS"
+  runtime: "wheel with no dependencies, uploaded to UC volume finance.ops.artifacts; numpy/pandas/pyspark come from Databricks Runtime 17.3 LTS"
   security: "bundle deployed to the service principal's own folder, not /Workspace/Shared (would let any user edit code that runs as the principal)"
 
 # ──────────── status ────────────

@@ -37,5 +37,9 @@ targets:
       # Deployed into the service principal's own folder. /Workspace/Shared would let
       # any workspace user edit code that then runs with the principal's privileges.
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+      # Wheels are uploaded to a Unity Catalog volume, not workspace files. The first
+      # job cluster could not read its wheel from the workspace folder; the volume is
+      # in our S3 bucket, reached through the S3 gateway endpoint.
+      artifact_path: /Volumes/${var.catalog}/ops/artifacts/${bundle.name}/${bundle.target}
     run_as:
       service_principal_name: ${var.runner}
