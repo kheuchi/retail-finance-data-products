@@ -7,7 +7,7 @@ resources:
         key, EUR amounts at the ECB rate of the day. Rows that break a rule go to
         finance.silver.quarantine with the reasons. Fails if any Bronze row is unaccounted for.
       max_concurrent_runs: 1
-      timeout_seconds: 3600
+      timeout_seconds: 5400
       tags:
         CostCenter: finance-data-platform
         Layer: silver
@@ -18,7 +18,7 @@ resources:
             policy_id: ${var.jobs_policy_id}
             apply_policy_default_values: true
             spark_version: 17.3.x-scala2.13
-            node_type_id: m6gd.large
+            node_type_id: m6gd.xlarge  # 4 vCPU, 16 GB: Silver joins and sorts 3.9m rows
             num_workers: 0
             data_security_mode: SINGLE_USER
             single_user_name: ${var.runner}

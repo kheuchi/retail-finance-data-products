@@ -184,6 +184,7 @@ SPECS: dict[str, Spec] = {
 # Masters first: later sources check their references against Silver tables built earlier.
 ORDER = ["stores", "products", "cashiers", "fx_rates", "pos_sales", "refunds", "gl_journal", "budget"]
 AUDIT = ["_source_file", "_ingested_at"]
+SMALL = {"stores", "products", "cashiers"}  # reference tables small enough to broadcast
 
 
 def daily_fx(fx_rates, until):
@@ -210,7 +211,12 @@ def daily_fx(fx_rates, until):
 
 
 def apply_spec(bronze, spec: Spec, refs: dict | None = None, fx=None):
-    """Split a Bronze DataFrame into (silver, quarantine, stats).
+    """Check a Bronze DataFrame against its spec. Returns (checked, silver, quarantine).
+
+    ``checked`` holds every Bronze row once, typed, with its list of reasons (empty means
+    clean). It is cached, so Bronze is read once and both outputs come from memory.
+    Rows stay slim on purpose: the original record is serialised only for rows that are
+    quarantined, never for the millions that pass.
 
     ``refs`` maps a source name to its Silver DataFrame, for reference checks.
     ``fx`` is the output of ``daily_fx``, needed when the spec converts amounts to EUR.
@@ -221,15 +227,11 @@ def apply_spec(bronze, spec: Spec, refs: dict | None = None, fx=None):
     refs = refs or {}
     cols = list(spec.columns)
     raw = {c: F.col(f"`{c}`") for c in cols}
-    blank = {c: raw[c].isNull() | (F.trim(raw[c]) == "") for c in cols}
 
     df = bronze.select(
         *[F.expr(f"try_cast(`{c}` AS {t})").alias(c) for c, t in spec.columns.items()],
-        *[F.when(blank[c], None).otherwise(raw[c]).alias(f"__raw_{c}") for c in cols],
-        F.col("_rescued_data").alias("__rescued")
-        if "_rescued_data" in bronze.columns
-        else F.lit(None).alias("__rescued"),
-        F.to_json(F.struct(*[raw[c] for c in cols])).alias("__record"),
+        *[F.when(raw[c].isNull() | (F.trim(raw[c]) == ""), None).otherwise(raw[c]).alias(f"__raw_{c}") for c in cols],
+        (F.col("_rescued_data") if "_rescued_data" in bronze.columns else F.lit(None)).alias("__rescued"),
         *AUDIT,
     )
 
@@ -243,46 +245,74 @@ def apply_spec(bronze, spec: Spec, refs: dict | None = None, fx=None):
 
     for i, (col, (source, ref_col)) in enumerate(spec.refs.items()):
         keys = refs[source].select(F.col(ref_col).alias(f"__ref{i}")).distinct()
+        if source in SMALL:
+            keys = F.broadcast(keys)  # a few hundred keys: ship them to every task, no shuffle
         df = df.join(keys, df[col] == keys[f"__ref{i}"], "left")
         checks.append((F.col(col).isNotNull() & F.col(f"__ref{i}").isNull(), f"ref:{col}"))
 
     for i, (new, (amount, currency, day)) in enumerate(spec.eur.items()):
-        rate = fx.select(
-            F.col("rate_date").alias(f"__d{i}"),
-            F.col("currency").alias(f"__c{i}"),
-            F.col("units_per_eur").alias(f"__r{i}"),
+        rate = F.broadcast(
+            fx.select(
+                F.col("rate_date").alias(f"__d{i}"),
+                F.col("currency").alias(f"__c{i}"),
+                F.col("units_per_eur").alias(f"__r{i}"),
+            )
         )
         df = df.join(rate, (df[day] == rate[f"__d{i}"]) & (df[currency] == rate[f"__c{i}"]), "left")
         df = df.withColumn(new, F.round(F.col(amount) / F.col(f"__r{i}"), 4).cast(EUR))
         checks.append((F.col(amount).isNotNull() & F.col(f"__r{i}").isNull(), f"no_fx_rate:{new}"))
 
     df = df.withColumn("__reasons", F.array_compact(F.array(*[F.when(cond, F.lit(r)) for cond, r in checks])))
-    df = df.cache()
+    bad = F.size("__reasons") > 0
+    checked = df.select(
+        *cols,
+        *spec.eur,
+        *AUDIT,
+        "__reasons",
+        F.when(bad, F.concat_ws("|", *[F.coalesce(F.col(f"__raw_{k}"), F.lit("")) for k in spec.key])).alias("__key"),
+        F.when(bad, F.to_json(F.struct(*[F.col(f"__raw_{c}").alias(c) for c in cols]))).alias("__record"),
+    ).cache()
 
-    good = df.where(F.size("__reasons") == 0)
     order = [F.col("_ingested_at").desc_nulls_last(), F.col("_source_file").desc_nulls_last()]
-    ranked = good.withColumn("__rn", F.row_number().over(Window.partitionBy(*spec.key).orderBy(*order)))
-    silver = ranked.where("__rn = 1").select(*cols, *spec.eur, *AUDIT)
-
-    quarantine = df.where(F.size("__reasons") > 0).select(
-        F.concat_ws("|", *[F.coalesce(F.col(f"__raw_{k}"), F.lit("")) for k in spec.key]).alias("record_key"),
+    latest = Window.partitionBy(*spec.key).orderBy(*order)
+    silver = (
+        checked.where(F.size("__reasons") == 0)
+        .withColumn("__rn", F.row_number().over(latest))
+        .where("__rn = 1")
+        .select(*cols, *spec.eur, *AUDIT)
+    )
+    quarantine = checked.where(F.size("__reasons") > 0).select(
+        F.col("__key").alias("record_key"),
         F.col("__reasons").alias("reasons"),
         F.col("__record").alias("record"),
         *AUDIT,
     )
+    return checked, silver, quarantine
 
-    stats = {
+
+def count_stats(bronze, checked, silver, quarantine) -> dict:
+    """Row counts for the invariant.
+
+    In the job, pass the written tables as ``silver`` and ``quarantine``: counting a Delta
+    table is cheap, recomputing the DataFrame is not. Duplicates are the clean rows that did
+    not make it into Silver, so the check reduces to bronze = clean + quarantined. It catches
+    rows lost in the split and rows multiplied by a bad join (for example a duplicated FX rate).
+    """
+    from pyspark.sql import functions as F
+
+    clean = checked.where(F.size("__reasons") == 0).count()
+    n_silver = silver.count()
+    return {
         "bronze": bronze.count(),
-        "silver": silver.count(),
+        "silver": n_silver,
         "quarantined": quarantine.count(),
-        "duplicates": ranked.where("__rn > 1").count(),
+        "duplicates": clean - n_silver,
     }
-    return silver, quarantine, stats
 
 
 def check_counts(source: str, stats: dict) -> None:
     kept = stats["silver"] + stats["quarantined"] + stats["duplicates"]
-    if stats["bronze"] != kept:
+    if stats["bronze"] != kept or stats["duplicates"] < 0:
         raise AssertionError(f"{source}: {stats['bronze']} Bronze rows but {kept} accounted for: {stats}")
 
 
@@ -306,20 +336,22 @@ def main() -> None:
 
     built, fx = {}, None
     for source in ORDER:
-        spec = SPECS[source]
         bronze = spark.table(f"{a.catalog}.bronze.{source}")
-        silver, quarantine, stats = apply_spec(bronze, spec, built, fx)
-        check_counts(source, stats)
+        checked, silver, quarantine = apply_spec(bronze, SPECS[source], built, fx)
 
-        target = f"{a.catalog}.silver.{source}"
+        target, qtable = f"{a.catalog}.silver.{source}", f"{a.catalog}.silver.quarantine"
         silver.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(target)
         (
             quarantine.select(F.lit(source).alias("source"), "*", F.current_timestamp().alias("_quarantined_at"))
             .write.mode("overwrite")
             .option("replaceWhere", f"source = '{source}'")
-            .saveAsTable(f"{a.catalog}.silver.quarantine")
+            .saveAsTable(qtable)
         )
         built[source] = spark.table(target)
+        stats = count_stats(bronze, checked, built[source], spark.table(qtable).where(F.col("source") == source))
+        checked.unpersist()
+        # Failing here stops the job, so nothing downstream (Gold) reads a Silver that lost rows.
+        check_counts(source, stats)
         print(
             f"silver.{source:<12} {stats['silver']:>10,} rows | quarantined {stats['quarantined']:>6,}"
             f" | duplicates {stats['duplicates']:>6,} | bronze {stats['bronze']:>10,}",
