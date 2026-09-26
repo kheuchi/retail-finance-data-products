@@ -63,7 +63,7 @@ def build_all(bronze, override=None):
         checked, silver, q = apply_spec(source, SPECS[s], built, fx)
         built[s], stats[s], quarantine[s] = silver, count_stats(source, checked, silver, q), q
         if s == "fx_rates":
-            fx = daily_fx(silver, "2026-09-30")
+            fx = daily_fx(silver, "2026-07-01", "2026-09-30")
     return built, stats, quarantine, fx
 
 
@@ -179,6 +179,20 @@ def test_refund_receipts_must_point_at_real_sales(spark, bronze):
     got = reasons(quarantine["refunds"])
     assert "rule:receipt_means_original" in got["R-NO-ORIGINAL"]
     assert "ref:original_transaction_id" in got["R-GHOST-SALE"]
+
+
+def test_fx_covers_days_before_the_first_published_rate(spark):
+    """The ECB's first rate of the year is on 2 January; sales on 1 January still need one."""
+    from decimal import Decimal
+
+    rates = spark.createDataFrame(
+        [("2025-01-02", "CHF", "0.9371"), ("2025-01-03", "CHF", "0.9400")], ["rate_date", "currency", "units_per_eur"]
+    ).selectExpr("CAST(rate_date AS DATE) rate_date", "currency", "CAST(units_per_eur AS DECIMAL(18,6)) units_per_eur")
+    got = {(str(r[0]), r[1]): r[2] for r in daily_fx(rates, "2025-01-01", "2025-01-05").collect()}
+    assert got[("2025-01-01", "CHF")] == Decimal("0.937100")  # before the first rate: the first rate
+    assert got[("2025-01-01", "EUR")] == 1
+    assert got[("2025-01-05", "CHF")] == Decimal("0.940000")  # Sunday: the last published rate
+    assert len(got) == 10  # 5 days x (CHF, EUR)
 
 
 def test_count_check_catches_lost_rows():
