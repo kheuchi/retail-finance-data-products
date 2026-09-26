@@ -187,23 +187,30 @@ AUDIT = ["_source_file", "_ingested_at"]
 SMALL = {"stores", "products", "cashiers"}  # reference tables small enough to broadcast
 
 
-def daily_fx(fx_rates, until):
-    """One rate per (currency, day) from the first published rate to ``until``.
+def daily_fx(fx_rates, start, until):
+    """One rate per (currency, day) for every day from ``start`` to ``until``.
 
     The ECB publishes on working days only, so weekends and holidays carry the last
-    published rate forward (the same rule the generator uses). EUR is added at 1.
+    published rate forward, and days before the first published rate (1 January) take
+    the first one: the same rule the generator uses. EUR is added at 1 for every day.
     """
     from pyspark.sql import Window
     from pyspark.sql import functions as F
 
-    days = fx_rates.agg(F.min("rate_date").alias("lo")).select(
+    days = fx_rates.agg(F.least(F.min("rate_date"), F.lit(start).cast("date")).alias("lo")).select(
         F.explode(F.sequence("lo", F.lit(until).cast("date"))).alias("rate_date")
     )
     grid = days.crossJoin(fx_rates.select("currency").distinct())
-    w = Window.partitionBy("currency").orderBy("rate_date").rowsBetween(Window.unboundedPreceding, 0)
+    by_day = Window.partitionBy("currency").orderBy("rate_date")
     filled = (
         grid.join(fx_rates.select("rate_date", "currency", "units_per_eur"), ["rate_date", "currency"], "left")
-        .withColumn("units_per_eur", F.last("units_per_eur", ignorenulls=True).over(w))
+        .withColumn(
+            "units_per_eur",
+            F.coalesce(
+                F.last("units_per_eur", ignorenulls=True).over(by_day.rowsBetween(Window.unboundedPreceding, 0)),
+                F.first("units_per_eur", ignorenulls=True).over(by_day.rowsBetween(0, Window.unboundedFollowing)),
+            ),
+        )
         .where(F.col("units_per_eur").isNotNull())
     )
     eur = days.select("rate_date", F.lit("EUR").alias("currency"), F.lit(1).cast(RATE).alias("units_per_eur"))
@@ -359,10 +366,12 @@ def main() -> None:
         )
 
         if source == "fx_rates":
-            until = spark.table(f"{a.catalog}.bronze.pos_sales").agg(F.max("business_date")).first()[0]
-            daily_fx(built["fx_rates"], until).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
-                f"{a.catalog}.silver.fx_daily"
+            first, until = (
+                spark.table(f"{a.catalog}.bronze.pos_sales").agg(F.min("business_date"), F.max("business_date")).first()
             )
+            daily_fx(built["fx_rates"], first, until).write.mode("overwrite").option(
+                "overwriteSchema", "true"
+            ).saveAsTable(f"{a.catalog}.silver.fx_daily")
             fx = spark.table(f"{a.catalog}.silver.fx_daily")
 
 
