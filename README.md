@@ -39,14 +39,14 @@ deployed from GitHub Actions as a Databricks Asset Bundle.
 > Detail: [`cmdb.yml`](cmdb.yml) → `toolchain`
 
 ```bash
-pip install -e ".[dev]" && pytest                       # tests, no Databricks needed
+pip install -e ".[dev]" && pytest                       # tests incl. local Spark (needs Java 17), no Databricks needed
 python -m retail_finance_data.jobs.generate --out /tmp/landing   # full dataset locally (~2 min, ~480 MB)
 ```
 
-To deploy: **Actions → Deploy to Databricks** → type `deploy`, tick "run job".
+To deploy: **Actions → Deploy to Databricks** → type `deploy`, pick a job to run (`generate_and_ingest` or `transform_silver`).
 
 ## Status
 
 > Detail: [`cmdb.yml`](cmdb.yml) → `status`
 
-Bronze loaded on 2026-09-26: 8 tables, 4.2m rows, every count matching the generator. Silver is next.
+Bronze loaded on 2026-09-26: 8 tables, 4.2m rows, every count matching the generator. Silver job built and tested (story 4.1); first run pending.

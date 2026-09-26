@@ -1,0 +1,39 @@
+resources:
+  jobs:
+    transform_silver:
+      name: "[finance] build silver"
+      description: >
+        Rebuilds finance.silver from finance.bronze: real types, one row per business
+        key, EUR amounts at the ECB rate of the day. Rows that break a rule go to
+        finance.silver.quarantine with the reasons. Fails if any Bronze row is unaccounted for.
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      tags:
+        CostCenter: finance-data-platform
+        Layer: silver
+
+      job_clusters:
+        - job_cluster_key: finance_jobs
+          new_cluster:
+            policy_id: ${var.jobs_policy_id}
+            apply_policy_default_values: true
+            spark_version: 17.3.x-scala2.13
+            node_type_id: m6gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            single_user_name: ${var.runner}
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: local[*]
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: silver
+          job_cluster_key: finance_jobs
+          python_wheel_task:
+            package_name: retail_finance_data
+            entry_point: build_silver
+            parameters: ["--catalog", "${var.catalog}"]
+          libraries:
+            - whl: ../dist/*.whl  # relative to this file, not the repo root
