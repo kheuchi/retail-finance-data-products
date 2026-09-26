@@ -84,3 +84,5 @@ toolchain:
 status:
   - {date: "2026-09-25", what: "Public repo created; scaffold only"}
   - {date: "2026-09-26", what: "Generator, tests (8/8), bundle and CI built; ECB rates snapshot committed"}
+  - {date: "2026-09-26", what: "First successful run: generate 221 s, Bronze ingest 251 s, cluster setup 471 s. finance.bronze: stores 40, products 1,200, cashiers 235, fx_rates 1,329, pos_sales 3,940,360, refunds 53,297, gl_journal 204,294, budget 480 - all equal to generated counts"}
+  - {date: "2026-09-26", what: "Two failed runs first: wheel unreadable from workspace files, then from a volume (Connection reset). Cause: PrivateLink endpoint SG blocked ports 8443-8451 (infra fix); wheels now also live in a UC volume"}

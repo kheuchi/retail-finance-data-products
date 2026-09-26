@@ -49,4 +49,4 @@ To deploy: **Actions → Deploy to Databricks** → type `deploy`, tick "run job
 
 > Detail: [`cmdb.yml`](cmdb.yml) → `status`
 
-Generator, tests and Bronze ingestion job built. First workspace run: pending.
+Bronze loaded on 2026-09-26: 8 tables, 4.2m rows, every count matching the generator. Silver is next.
