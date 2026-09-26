@@ -12,9 +12,9 @@ resources:
         Layer: bronze
 
       job_clusters:
-        - job_cluster_key: finance_small
+        - job_cluster_key: finance_jobs
           new_cluster:
-            policy_id: ${var.finance_small_policy_id}
+            policy_id: ${var.jobs_policy_id}
             apply_policy_default_values: true
             spark_version: 17.3.x-scala2.13
             node_type_id: m6gd.large
@@ -29,7 +29,7 @@ resources:
 
       tasks:
         - task_key: generate
-          job_cluster_key: finance_small
+          job_cluster_key: finance_jobs
           python_wheel_task:
             package_name: retail_finance_data
             entry_point: generate
@@ -40,7 +40,7 @@ resources:
         - task_key: ingest_bronze
           depends_on:
             - task_key: generate
-          job_cluster_key: finance_small
+          job_cluster_key: finance_jobs
           python_wheel_task:
             package_name: retail_finance_data
             entry_point: ingest_bronze

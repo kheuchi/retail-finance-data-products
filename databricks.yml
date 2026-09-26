@@ -20,10 +20,10 @@ variables:
   catalog:
     description: Unity Catalog catalog holding raw, bronze, silver and gold.
     default: finance
-  finance_small_policy_id:
-    description: Cluster policy capping size, cost and idle time (created by the infra repo).
+  jobs_policy_id:
+    description: Job-cluster policy capping size and cost (created by the infra repo).
     lookup:
-      cluster_policy: finance-small
+      cluster_policy: finance-jobs
   runner:
     description: Application ID of the service principal that owns and runs the jobs. Not a secret.
     default: 57d9d765-48e5-45b6-9da0-4c3472830123
