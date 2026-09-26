@@ -1,0 +1,41 @@
+# Databricks Asset Bundle: code, job definition and deployment target in one place.
+# Deployed by GitHub Actions (deploy.yml), never by hand.
+
+bundle:
+  name: retail-finance-data-products
+
+include:
+  - resources/*.yml
+
+artifacts:
+  # The package is built into a wheel and installed on the job cluster from the
+  # workspace. It declares no dependencies, so nothing is fetched from PyPI: the
+  # cluster has no internet access.
+  default:
+    type: whl
+    build: python -m build --wheel
+    path: .
+
+variables:
+  catalog:
+    description: Unity Catalog catalog holding raw, bronze, silver and gold.
+    default: finance
+  finance_small_policy_id:
+    description: Cluster policy capping size, cost and idle time (created by the infra repo).
+    lookup:
+      cluster_policy: finance-small
+  runner:
+    description: Application ID of the service principal that owns and runs the jobs. Not a secret.
+    default: 57d9d765-48e5-45b6-9da0-4c3472830123
+
+targets:
+  prod:
+    mode: production
+    default: true
+    workspace:
+      host: https://dbc-011bcfbf-172d.cloud.databricks.com
+      # Deployed into the service principal's own folder. /Workspace/Shared would let
+      # any workspace user edit code that then runs with the principal's privileges.
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      service_principal_name: ${var.runner}

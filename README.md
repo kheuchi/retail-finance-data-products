@@ -1,6 +1,6 @@
 # Retail Finance Data Products
 
-**Contents:** [What this is](#what-this-is) · [Where the data comes from](#where-the-data-comes-from) · [How it flows](#how-it-flows) · [Status](#status)
+**Contents:** [What this is](#what-this-is) · [Where the data comes from](#where-the-data-comes-from) · [How it flows](#how-it-flows) · [Run it](#run-it) · [Status](#status)
 
 Synthetic accounting data for a fictional large retailer, and the Databricks
 pipelines that turn it into governed finance tables. Part of the
@@ -34,8 +34,19 @@ generator job ─► UC volume (raw files) ─► Auto Loader ─► Bronze ─�
 Everything runs inside the private Databricks workspace (no internet egress),
 deployed from GitHub Actions as a Databricks Asset Bundle.
 
+## Run it
+
+> Detail: [`cmdb.yml`](cmdb.yml) → `toolchain`
+
+```bash
+pip install -e ".[dev]" && pytest                       # tests, no Databricks needed
+python -m retail_finance_data.jobs.generate --out /tmp/landing   # full dataset locally (~2 min, ~480 MB)
+```
+
+To deploy: **Actions → Deploy to Databricks** → type `deploy`, tick "run job".
+
 ## Status
 
 > Detail: [`cmdb.yml`](cmdb.yml) → `status`
 
-Repository created 2026-09-25. Generator and Bronze ingestion are next.
+Generator, tests and Bronze ingestion job built. First workspace run: pending.

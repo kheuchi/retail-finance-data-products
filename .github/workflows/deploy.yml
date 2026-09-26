@@ -1,0 +1,44 @@
+name: Deploy to Databricks
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type deploy to deploy the main branch to the workspace
+        required: true
+        type: string
+      run_job:
+        description: Also run the generate + ingest job after deploying
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-databricks-data
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy bundle
+    if: github.ref == 'refs/heads/main' && inputs.confirmation == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Install wheel builder
+        run: python -m pip install --disable-pip-version-check build
+      - uses: databricks/setup-cli@6a2e75f1f954d87503702c408deea63216c0799d # v1.18.0
+      - name: Deploy
+        run: databricks bundle deploy -t prod
+      - name: Run generate + ingest
+        if: inputs.run_job
+        run: databricks bundle run -t prod generate_and_ingest
