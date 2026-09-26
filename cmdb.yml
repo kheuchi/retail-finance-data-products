@@ -58,7 +58,7 @@ pipeline:
   silver: "typed, deduplicated, validated"
   gold: "certified finance tables: revenue, refunds, margin, variance"
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
-  compute: "finance-small cluster policy (auto-terminating, small, spot)"
+  compute: "finance-jobs cluster policy (job clusters: small, spot, single node default; stop when the job ends)"
 
 # ──────────── tests ────────────
 tests:
