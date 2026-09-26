@@ -12,11 +12,13 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["numpy>=1.26,<3", "pandas>=2.2,<3", "pytest>=8", "ruff>=0.6"]
+# pyspark matches Databricks Runtime 17.3 LTS (Spark 4.0); the Silver tests need Java 17+.
+dev = ["numpy>=1.26,<3", "pandas>=2.2,<3", "pyspark>=4.0,<4.1", "pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 generate = "retail_finance_data.jobs.generate:main"
 ingest_bronze = "retail_finance_data.jobs.bronze:main"
+build_silver = "retail_finance_data.jobs.silver:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

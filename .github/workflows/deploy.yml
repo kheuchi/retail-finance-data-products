@@ -8,10 +8,11 @@ on:
         required: true
         type: string
       run_job:
-        description: Also run the generate + ingest job after deploying
+        description: Job to run after deploying
         required: true
-        type: boolean
-        default: false
+        type: choice
+        default: none
+        options: [none, generate_and_ingest, transform_silver]
 
 concurrency:
   group: deploy-databricks-data
@@ -39,6 +40,8 @@ jobs:
       - uses: databricks/setup-cli@6a2e75f1f954d87503702c408deea63216c0799d # v1.18.0
       - name: Deploy
         run: databricks bundle deploy -t prod
-      - name: Run generate + ingest
-        if: inputs.run_job
-        run: databricks bundle run -t prod generate_and_ingest
+      - name: Run job
+        if: inputs.run_job != 'none'
+        env:
+          JOB: ${{ inputs.run_job }}
+        run: databricks bundle run -t prod "$JOB"

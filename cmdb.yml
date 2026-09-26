@@ -20,7 +20,7 @@ updated: "2026-09-26"
 sources:
   generated:
     - {name: stores, what: "~40 stores across regions, channels (store, online)"}
-    - {name: products, what: "~2,000 SKUs in categories with cost and list price"}
+    - {name: products, what: "1,200 SKUs in 7 categories with cost and list price"}
     - {name: cashiers, what: "pseudonymous staff IDs per store, no names"}
     - {name: pos_sales, what: "daily transactions with seasonality, weekends, promotions, holidays"}
     - {name: refunds, what: "linked to sales where possible; some without receipt"}
@@ -55,7 +55,13 @@ volumes:
 pipeline:
   landing: "Unity Catalog volume on the governed bucket (raw files)"
   bronze: "Auto Loader, append-only, schema captured"
-  silver: "typed, deduplicated, validated"
+  silver:
+    job: "transform_silver (resources/silver.job.yml), entry point build_silver; full rebuild from Bronze on every run"
+    rules: "per-source Spec in jobs/silver.py: types (try_cast), business key, required columns, SQL rules, references, EUR conversion"
+    quarantine: "finance.silver.quarantine: source, record_key, reasons, original record as JSON; rebuilt per source"
+    fx: "finance.silver.fx_daily: ECB rate per currency and day, last published rate carried over weekends and holidays; EUR = 1"
+    invariant: "bronze = silver + quarantined + duplicates, per source; the job fails otherwise"
+    story: "control plane docs/stories/4.1-silver-tables.md"
   gold: "certified finance tables: revenue, refunds, margin, variance"
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
   compute: "finance-jobs cluster policy (job clusters: small, spot, single node default; stop when the job ends)"
@@ -70,12 +76,19 @@ tests:
   - "Planted anomalies exist and match the ground-truth file"
   - "Budget = prior-year actuals x 1.05"
   - "Easter dates correct (holiday calendar)"
+  - "Silver: clean generated data passes untouched (0 quarantined, 0 duplicates, counts equal)"
+  - "Silver: columns get real types (date, timestamp, int, decimal, boolean)"
+  - "Silver: CHF amounts converted at the last ECB rate published on or before the day (Saturdays included)"
+  - "Silver: bad rows quarantined with the right reason (bad type, negative quantity, unknown store, gross != net + vat, missing sku); later duplicate wins"
+  - "Silver: receipted refunds must point at a real sale"
+  - "Silver: the count check fails when rows go missing"
 
 # ──────────── toolchain ────────────
 toolchain:
-  local: "WSL2; project venv in .venv (numpy, pandas, pytest, ruff, build) installed 2026-09-26"
+  local: "WSL2; project venv in .venv (numpy, pandas, pyspark 4.0, pytest, ruff, build) installed 2026-09-26"
+  java: "Temurin 17 JRE in ~/.local/jdk17 (user install, no sudo) on 2026-09-26, for local Spark tests; export JAVA_HOME=$HOME/.local/jdk17"
   databricks_cli: "v1.18.0 binary installed in ~/.local/bin on 2026-09-26 (no sudo)"
-  ci: "ci.yml: ruff + pytest on Python 3.12, bundle validate; deploy.yml: manual, typed 'deploy', optional job run"
+  ci: "ci.yml: ruff + pytest (incl. local Spark, runner's Java 17) on Python 3.12, bundle validate; deploy.yml: manual, typed 'deploy', choice of job to run (none, generate_and_ingest, transform_silver)"
   auth: "service principal terraform-platform; DATABRICKS_CLIENT_ID variable + DATABRICKS_CLIENT_SECRET secret"
   runtime: "wheel with no dependencies, uploaded to UC volume finance.ops.artifacts; numpy/pandas/pyspark come from Databricks Runtime 17.3 LTS"
   security: "bundle deployed to the service principal's own folder, not /Workspace/Shared (would let any user edit code that runs as the principal)"
