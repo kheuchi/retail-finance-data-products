@@ -11,10 +11,15 @@ __pycache__/
 data/
 *.parquet
 *.csv
-!reference/*.csv
+!src/retail_finance_data/reference/*.csv
 
 # Secrets and local config
 .env
 .env.*
 *.pem
 .databrickscfg
+
+# Build outputs
+dist/
+build/
+*.egg-info/

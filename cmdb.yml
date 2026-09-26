@@ -7,11 +7,14 @@
 #   updated            last edit date
 #   sources            every data source, how it is produced, licence
 #   anomalies          planted ground-truth anomalies for the ML use cases
+#   volumes            row counts and size of a full run
 #   pipeline           raw -> Bronze -> Silver -> Gold, and where each lives
+#   tests              what the test suite guarantees
+#   toolchain          local setup and CI
 #   status             what exists today
 # ======================================================================
 
-updated: "2026-09-25"
+updated: "2026-09-26"
 
 # ──────────── sources ────────────
 sources:
@@ -34,10 +37,19 @@ sources:
 # ──────────── anomalies ────────────
 anomalies:
   purpose: "Ground truth for the refund & margin leakage model"
-  planned:
-    - "One cashier at one store: no-receipt refunds ramping up from week 38"
-    - "One store: discount rate creeping up, margin erosion"
-    - "A few GL postings that do not match sub-ledger totals (reconciliation breaks)"
+  truth_files: "landing/_ground_truth/anomalies.csv (summary) and planted_records.csv (record ids)"
+  planted:
+    - "A1: store S017, cashier S017-C03, from 2026-08-01: no-receipt cash refunds ramping 1 -> 8 a day (218 records). S017 returns go from ~EUR 450/month to EUR 7.0k (Aug) and 12.5k (Sep)"
+    - "A2: store S031, from 2026-06-01: extra discount on every line rising to 12% (margin erosion; store-level, no record ids)"
+    - "A3: August 2026: 4 manual revenue journals (EUR 3-12k) with no POS sales behind them (GL vs POS reconciliation breaks)"
+
+# ──────────── volumes ────────────
+volumes:
+  full_run: "2025-01-01 to 2026-09-25, 40 stores (35 DE + 1 online in EUR, 4 CH in CHF), 1,200 products"
+  rows: {pos_sales: 3940360, refunds: 53297, gl_journal: 204294, budget: 480, cashiers: 235, fx_rates: 1329}
+  size: "~482 MB CSV (pos_sales 459 MB)"
+  local_runtime: "~2 min, ~370 MB RAM"
+  sanity: "net revenue EUR 38.9m (2025); gross margin 34-35%; returns 1.4% of revenue; December peak EUR 4.3m"
 
 # ──────────── pipeline ────────────
 pipeline:
@@ -48,6 +60,27 @@ pipeline:
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
   compute: "finance-small cluster policy (auto-terminating, small, spot)"
 
+# ──────────── tests ────────────
+tests:
+  - "Same seed gives identical data"
+  - "Every GL journal balances (debits = credits)"
+  - "GL revenue from POS equals POS net sales in EUR, per store and day"
+  - "Physical stores are closed on Sundays and national holidays"
+  - "Receipted refunds point at real sales; no-receipt ones point at nothing"
+  - "Planted anomalies exist and match the ground-truth file"
+  - "Budget = prior-year actuals x 1.05"
+  - "Easter dates correct (holiday calendar)"
+
+# ──────────── toolchain ────────────
+toolchain:
+  local: "WSL2; project venv in .venv (numpy, pandas, pytest, ruff, build) installed 2026-09-26"
+  databricks_cli: "v1.18.0 binary installed in ~/.local/bin on 2026-09-26 (no sudo)"
+  ci: "ci.yml: ruff + pytest on Python 3.12, bundle validate; deploy.yml: manual, typed 'deploy', optional job run"
+  auth: "service principal terraform-platform; DATABRICKS_CLIENT_ID variable + DATABRICKS_CLIENT_SECRET secret"
+  runtime: "wheel with no dependencies; numpy/pandas/pyspark come from Databricks Runtime 17.3 LTS"
+  security: "bundle deployed to the service principal's own folder, not /Workspace/Shared (would let any user edit code that runs as the principal)"
+
 # ──────────── status ────────────
 status:
   - {date: "2026-09-25", what: "Public repo created; scaffold only"}
+  - {date: "2026-09-26", what: "Generator, tests (8/8), bundle and CI built; ECB rates snapshot committed"}

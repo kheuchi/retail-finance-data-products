@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "retail-finance-data"
+version = "0.1.0"
+description = "Synthetic retail accounting data and its Databricks ingestion"
+requires-python = ">=3.10"
+# Deliberately empty. numpy, pandas and pyspark come with the Databricks Runtime,
+# and the workspace has no internet egress, so pip could not fetch anything anyway.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["numpy>=1.26,<3", "pandas>=2.2,<3", "pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+generate = "retail_finance_data.jobs.generate:main"
+ingest_bronze = "retail_finance_data.jobs.bronze:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+retail_finance_data = ["reference/*.csv"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E731"]

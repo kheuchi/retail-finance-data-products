@@ -1,0 +1,49 @@
+resources:
+  jobs:
+    generate_and_ingest:
+      name: "[finance] generate raw data + ingest bronze"
+      description: >
+        Writes the synthetic ERP/POS extracts to finance.raw.landing, then loads them
+        into finance.bronze with Auto Loader. Idempotent: re-runs add nothing new.
+      max_concurrent_runs: 1
+      timeout_seconds: 5400
+      tags:
+        CostCenter: finance-data-platform
+        Layer: bronze
+
+      job_clusters:
+        - job_cluster_key: finance_small
+          new_cluster:
+            policy_id: ${var.finance_small_policy_id}
+            apply_policy_default_values: true
+            spark_version: 17.3.x-scala2.13
+            node_type_id: m6gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            single_user_name: ${var.runner}
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: local[*]
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: generate
+          job_cluster_key: finance_small
+          python_wheel_task:
+            package_name: retail_finance_data
+            entry_point: generate
+            parameters: ["--catalog", "${var.catalog}"]
+          libraries:
+            - whl: ./dist/*.whl
+
+        - task_key: ingest_bronze
+          depends_on:
+            - task_key: generate
+          job_cluster_key: finance_small
+          python_wheel_task:
+            package_name: retail_finance_data
+            entry_point: ingest_bronze
+            parameters: ["--catalog", "${var.catalog}"]
+          libraries:
+            - whl: ./dist/*.whl
