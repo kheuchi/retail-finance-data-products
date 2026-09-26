@@ -35,7 +35,7 @@ resources:
             entry_point: generate
             parameters: ["--catalog", "${var.catalog}"]
           libraries:
-            - whl: ./dist/*.whl
+            - whl: ../dist/*.whl  # relative to this file, not the repo root
 
         - task_key: ingest_bronze
           depends_on:
@@ -46,4 +46,4 @@ resources:
             entry_point: ingest_bronze
             parameters: ["--catalog", "${var.catalog}"]
           libraries:
-            - whl: ./dist/*.whl
+            - whl: ../dist/*.whl  # relative to this file, not the repo root
