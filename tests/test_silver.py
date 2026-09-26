@@ -12,7 +12,14 @@ from pyspark.sql import functions as F  # noqa: E402
 from test_generator import SMALL  # noqa: E402
 
 from retail_finance_data.jobs.generate import write_all  # noqa: E402
-from retail_finance_data.jobs.silver import ORDER, SPECS, apply_spec, check_counts, daily_fx  # noqa: E402
+from retail_finance_data.jobs.silver import (  # noqa: E402
+    ORDER,
+    SPECS,
+    apply_spec,
+    check_counts,
+    count_stats,
+    daily_fx,
+)
 
 
 @pytest.fixture(scope="module")
@@ -52,8 +59,9 @@ def build_all(bronze, override=None):
     override = override or {}
     built, fx, stats, quarantine = {}, None, {}, {}
     for s in ORDER:
-        silver, q, st = apply_spec(override.get(s, bronze[s]), SPECS[s], built, fx)
-        built[s], stats[s], quarantine[s] = silver, st, q
+        source = override.get(s, bronze[s])
+        checked, silver, q = apply_spec(source, SPECS[s], built, fx)
+        built[s], stats[s], quarantine[s] = silver, count_stats(source, checked, silver, q), q
         if s == "fx_rates":
             fx = daily_fx(silver, "2026-09-30")
     return built, stats, quarantine, fx
