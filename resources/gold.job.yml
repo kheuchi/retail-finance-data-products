@@ -38,7 +38,7 @@ resources:
           python_wheel_task:
             package_name: retail_finance_data
             entry_point: quality_gate
-            parameters: ["--catalog", "${var.catalog}", "--stage", "silver"]
+            parameters: ["--catalog", "${var.catalog}", "--stage", "silver", "--run-id", "{{job.run_id}}", "--job-id", "{{job.id}}"]
           libraries:
             - whl: ../dist/*.whl  # relative to this file, not the repo root
 
@@ -71,6 +71,6 @@ resources:
           python_wheel_task:
             package_name: retail_finance_data
             entry_point: quality_gate
-            parameters: ["--catalog", "${var.catalog}", "--stage", "gold"]
+            parameters: ["--catalog", "${var.catalog}", "--stage", "gold", "--run-id", "{{job.run_id}}", "--job-id", "{{job.id}}"]
           libraries:
             - whl: ../dist/*.whl  # relative to this file, not the repo root
