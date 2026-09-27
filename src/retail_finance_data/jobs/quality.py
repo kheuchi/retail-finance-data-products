@@ -5,7 +5,8 @@ Runs twice in ``build_gold``, with the Databricks run id so both halves belong t
 - ``--stage silver`` before anything is built: checks Silver, records the Delta version and
   row count of every Silver table it approved, and warns if a count dropped since last run;
 - ``--stage gold`` after Gold is written: checks Gold, fails if Silver changed under the run,
-  writes lineage evidence, and records whether this run's Gold is **certified**.
+  proves the job's identity cannot administer anything, writes lineage evidence, and records
+  whether this run's Gold is **certified**.
 
 Every result goes to ``ops.dq_results``. A failed critical check fails the job after
 recording; a warning is recorded and lets the run continue. Consumers (ML, the agent) read
@@ -230,6 +231,34 @@ def enforce(results: list[dict]) -> None:
         raise RuntimeError(f"Quality gate failed, {len(failed)} critical check(s): {lines}")
 
 
+# ---------- identity (story 4.5) ----------
+
+
+def identity_checks(sql, catalog: str, stage: str = "gold") -> list[dict]:
+    """Negative tests, run as the job's own identity on every run: it must not be a workspace
+    admin, and it must not be able to change a grant. ``sql`` runs a statement and returns
+    rows (raises on failure). A grant that unexpectedly succeeds is revoked at once."""
+    who = sql("SELECT current_user() AS u, is_member('admins') AS admin")[0]
+    results = [
+        result(
+            "runner_not_admin",
+            CRITICAL,
+            stage,
+            int(bool(who["admin"])),
+            f"job runs as {who['u']}, workspace admin: {bool(who['admin'])}",
+        )
+    ]
+    probe = f"SELECT ON SCHEMA {catalog}.silver TO `finance-analysts`"
+    try:
+        sql(f"GRANT {probe}")
+    except Exception as e:  # expected: permission denied
+        results.append(result("runner_cannot_grant", CRITICAL, stage, 0, f"GRANT refused: {type(e).__name__}"))
+    else:
+        sql(f"REVOKE {probe}")
+        results.append(result("runner_cannot_grant", CRITICAL, stage, 1, "GRANT on silver succeeded (revoked at once)"))
+    return results
+
+
 # ---------- lineage evidence ----------
 
 
@@ -373,6 +402,7 @@ def main() -> None:
             }
         results.append(compare_snapshots(before, {t: version(t) for t in SNAPSHOT}, "gold"))
         results.append(lineage_result(spark, c, a.job_id))
+        results += identity_checks(lambda q: spark.sql(q).collect(), c)
         failed = [r["check"] for r in results if r["severity"] == CRITICAL and not r["passed"]]
         (
             spark.createDataFrame(
