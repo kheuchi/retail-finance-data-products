@@ -81,6 +81,13 @@ pipeline:
       guards: "written only if Gold adds up to Silver (net sales, lines, cost, refund count and amount, budget-year store-months) and an allow-list holds: finance-analysts only USE CATALOG/BROWSE on the catalog and USE SCHEMA + SELECT on gold; no grant to analysts, account users or users below gold (SHOW GRANTS on catalog/schemas judged where granted, information_schema.table_privileges for tables)"
       naming: "paid_incl_vat_eur (not gross sales); net_sales_eur is before refunds; column comments on key columns"
       story: "control plane docs/stories/4.3-gold-finance-tables.md"
+    quality:
+      tasks: "quality_silver (first) and quality_gold (last) in build_gold; entry point quality_gate --stage silver|gold"
+      critical: "silver_keys_unique, journals_balance, amounts_in_range, sales_have_masters (silver); gold_adds_up (gold): a failure stops the run after recording"
+      warning: "quarantine_empty, volume_collapse (store-day under 1/3 of its usual weekday volume), lineage_traced"
+      results: "ops.dq_results (append, run_id, checked_at)"
+      lineage: "ops.lineage_evidence: gold -> silver -> bronze from system.access.table_lineage, plus a sample _source_file per bronze table"
+      story: "control plane docs/stories/4.4-quality-and-lineage.md"
     story: "control plane docs/stories/4.2-gl-pos-reconciliation.md"
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
   compute: "finance-jobs cluster policy (job clusters: small, spot, single node default; stop when the job ends)"
@@ -115,6 +122,10 @@ tests:
   - "Gold: budget variance pro-rates the month in progress"
   - "Gold: access allow-list ignores inherited rows, rejects schema-, table- and catalog-level leaks, MODIFY on gold, broad groups, and missing USE SCHEMA/SELECT on gold"
   - "Gold: budget variance keeps store-months without budget and survives a zero budget"
+  - "Quality: clean data passes both gates"
+  - "Quality: one ledger line edited in the landing file passes Silver row rules but fails journals_balance and stops the run, naming the journal"
+  - "Quality: duplicate keys and absurd amounts are critical; a one-day volume collapse is a warning that does not stop the run"
+  - "Quality: Gold that no longer adds up to Silver is critical"
 
 # ──────────── toolchain ────────────
 toolchain:

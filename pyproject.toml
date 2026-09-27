@@ -21,6 +21,7 @@ ingest_bronze = "retail_finance_data.jobs.bronze:main"
 build_silver = "retail_finance_data.jobs.silver:main"
 reconcile_gl_pos = "retail_finance_data.jobs.reconcile:main"
 build_gold_tables = "retail_finance_data.jobs.gold:main"
+quality_gate = "retail_finance_data.jobs.quality:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
