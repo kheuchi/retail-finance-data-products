@@ -3,11 +3,13 @@ resources:
     build_gold:
       name: "[finance] build gold"
       description: >
-        Builds finance.gold from finance.silver. First task: reconcile general-ledger
+        Builds finance.gold from finance.silver, between two quality gates (critical
+        checks stop the run; results in finance.ops.dq_results). Reconcile general-ledger
         revenue with POS sales per store and day, list every difference with the journal
         that causes it, and score detection against the generator's answer key.
         Second task: the finance tables (daily revenue, margin, refunds, budget variance),
-        written only if they add up to Silver and analysts cannot read below Gold.
+        written only if they add up to Silver and analysts cannot read below Gold. The last
+        gate checks Gold and writes lineage evidence (Gold -> Silver -> Bronze -> file).
       max_concurrent_runs: 1
       timeout_seconds: 3600
       tags:
@@ -31,7 +33,18 @@ resources:
               ResourceClass: SingleNode
 
       tasks:
+        - task_key: quality_silver
+          job_cluster_key: finance_jobs
+          python_wheel_task:
+            package_name: retail_finance_data
+            entry_point: quality_gate
+            parameters: ["--catalog", "${var.catalog}", "--stage", "silver", "--run-id", "{{job.run_id}}", "--job-id", "{{job.id}}"]
+          libraries:
+            - whl: ../dist/*.whl  # relative to this file, not the repo root
+
         - task_key: reconcile_gl_pos
+          depends_on:
+            - task_key: quality_silver
           job_cluster_key: finance_jobs
           python_wheel_task:
             package_name: retail_finance_data
@@ -48,5 +61,16 @@ resources:
             package_name: retail_finance_data
             entry_point: build_gold_tables
             parameters: ["--catalog", "${var.catalog}"]
+          libraries:
+            - whl: ../dist/*.whl  # relative to this file, not the repo root
+
+        - task_key: quality_gold
+          depends_on:
+            - task_key: finance_tables
+          job_cluster_key: finance_jobs
+          python_wheel_task:
+            package_name: retail_finance_data
+            entry_point: quality_gate
+            parameters: ["--catalog", "${var.catalog}", "--stage", "gold", "--run-id", "{{job.run_id}}", "--job-id", "{{job.id}}"]
           libraries:
             - whl: ../dist/*.whl  # relative to this file, not the repo root

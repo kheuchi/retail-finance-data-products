@@ -15,7 +15,7 @@ Inventory: [`cmdb.yml`](cmdb.yml).
 | Where does data come from? | Generated in code (40 stores, 21 months, 3 planted frauds); only ECB FX rates are real |
 | Where does it run? | Databricks job clusters in the private workspace, no internet egress |
 | How does it ship? | PR → lint, tests (incl. local Spark), bundle validate → merge → gated deploy |
-| Status | Bronze ✅ · Silver ✅ (0 rows quarantined, counts equal to Bronze) · Gold next |
+| Status | Bronze ✅ · Silver ✅ · Reconciliation ✅ (4/4 fake journals) · Gold ✅ · quality gates and lineage evidence |
 
 ## Architecture
 
@@ -41,13 +41,13 @@ the reconciliation and the models.
 
 ## How it flows
 
-> **TL;DR:** two jobs today, deployed as one bundle. Detail: [`cmdb.yml`](cmdb.yml) → `pipeline`
+> **TL;DR:** three jobs, deployed as one bundle. Detail: [`cmdb.yml`](cmdb.yml) → `pipeline`
 
 | Job | Steps | Output |
 |---|---|---|
 | `generate_and_ingest` | Generate CSV files → Auto Loader | `finance.bronze.*` (text, untouched) |
 | `transform_silver` | Type, check rules, dedup, convert to EUR | `finance.silver.*`, `silver.quarantine`, `silver.fx_daily` |
-| Gold (next) | Reconcile GL vs POS, aggregate | `finance.gold.*` |
+| `build_gold` | Quality gate → reconcile GL vs POS → finance tables → quality gate + lineage | `finance.gold.*`, `ops.dq_results`, `ops.lineage_evidence`, `ops.detection_scores` |
 
 ## Layout
 
@@ -56,7 +56,7 @@ the reconciliation and the models.
 | Path | What |
 |---|---|
 | `src/retail_finance_data/generator.py` | The synthetic data model |
-| `src/retail_finance_data/jobs/` | `generate`, `bronze`, `silver` entry points |
+| `src/retail_finance_data/jobs/` | `generate`, `bronze`, `silver`, `reconcile`, `gold`, `quality` entry points |
 | `resources/*.job.yml` | Job definitions (cluster, tasks, policy) |
 | `databricks.yml` | The bundle: build, target workspace, run-as |
 | `tests/` | Generator properties and Silver rules on local Spark |
@@ -76,13 +76,13 @@ To deploy: **Actions → Deploy to Databricks** → type `deploy`, pick a job to
 
 ## Status
 
-> **TL;DR:** Bronze and Silver proven, Gold next. Detail: [`cmdb.yml`](cmdb.yml) → `status`
+> **TL;DR:** the whole medallion is live; ML is next. Detail: [`cmdb.yml`](cmdb.yml) → `status`
 
 | Layer | State |
 |---|---|
 | Bronze | ✅ 2026-09-26: 8 tables, 4.2m rows, every count equal to the generator |
 | Silver | ✅ 2026-09-27: 8 tables, 0 quarantined, 0 duplicates, every count equal to Bronze (~11 min on one node) |
-| Gold | Next: reconciliation, then finance tables |
+| Gold | ✅ 2026-09-27: reconciliation 4/4, 0 false alarms; 4 finance tables; 2025 net sales EUR 38.88m, margin 34.31% |
 
 ## How it was built
 
@@ -94,4 +94,6 @@ To deploy: **Actions → Deploy to Databricks** → type `deploy`, pick a job to
 | [3.2 Catalog and bundle deploy](https://github.com/kheuchi/retail-finance-platform-control-plane/blob/main/docs/stories/3.2-catalog-and-bundle-deploy.md) | Bundle, service principal folder, wheel path |
 | [3.3 First job in the private VPC](https://github.com/kheuchi/retail-finance-platform-control-plane/blob/main/docs/stories/3.3-first-job-in-the-private-vpc.md) | Four failed runs and the blocked port |
 | [4.1 Silver tables](https://github.com/kheuchi/retail-finance-platform-control-plane/blob/main/docs/stories/4.1-silver-tables.md) | How Spark cleans the data, and the first slow run |
-| [4.2 GL vs POS reconciliation](https://github.com/kheuchi/retail-finance-platform-control-plane/blob/main/docs/stories/4.2-gl-pos-reconciliation.md) | Next: catch the fake journals |
+| [4.2 GL vs POS reconciliation](https://github.com/kheuchi/retail-finance-platform-control-plane/blob/main/docs/stories/4.2-gl-pos-reconciliation.md) | Catching the fake journals by amount, not label |
+| [4.3 Gold finance tables](https://github.com/kheuchi/retail-finance-platform-control-plane/blob/main/docs/stories/4.3-gold-finance-tables.md) | Definitions, access allow-list, frauds found unprompted |
+| [4.4 Quality and lineage](https://github.com/kheuchi/retail-finance-platform-control-plane/blob/main/docs/stories/4.4-quality-and-lineage.md) | Quality gates and the trail from a number to its file |

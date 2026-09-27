@@ -81,6 +81,14 @@ pipeline:
       guards: "written only if Gold adds up to Silver (net sales, lines, cost, refund count and amount, budget-year store-months) and an allow-list holds: finance-analysts only USE CATALOG/BROWSE on the catalog and USE SCHEMA + SELECT on gold; no grant to analysts, account users or users below gold (SHOW GRANTS on catalog/schemas judged where granted, information_schema.table_privileges for tables)"
       naming: "paid_incl_vat_eur (not gross sales); net_sales_eur is before refunds; column comments on key columns"
       story: "control plane docs/stories/4.3-gold-finance-tables.md"
+    quality:
+      tasks: "quality_silver (first) and quality_gold (last) in build_gold; entry point quality_gate --stage silver|gold --run-id {{job.run_id}} --job-id {{job.id}}"
+      critical: "silver_keys_unique and sales_have_masters (tripwires for Silver regressions), journals_balance, amounts_in_range (sales, refunds, ledger, in EUR), quarantine_money; gold_adds_up, silver_unchanged (Delta versions at the gold gate = those approved at the silver gate)"
+      warning: "quarantine_masters, refund_within_sale (local currency), missing_store_days (open days from the holiday calendar with no sales), volume_collapse, row_count_drop (>5% vs previous run), lineage_traced"
+      results: "ops.dq_results (run_id = Databricks run id), ops.silver_snapshot (versions and counts per run), ops.gold_certification (certified true/false per run: consumers use Gold only from certified runs)"
+      lineage: "ops.lineage_evidence: table chains gold -> silver -> bronze from the UC lineage REST API (links written by this job), plus one Gold number traced to its Silver rows, Bronze rows and source files"
+      accepted: "freshness (dataset static until scheduling, stage 6); broken-file run on the workspace (Bronze is append-only; proven by test on CSV-shaped rows)"
+      story: "control plane docs/stories/4.4-quality-and-lineage.md"
     story: "control plane docs/stories/4.2-gl-pos-reconciliation.md"
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
   compute: "finance-jobs cluster policy (job clusters: small, spot, single node default; stop when the job ends)"
@@ -115,6 +123,14 @@ tests:
   - "Gold: budget variance pro-rates the month in progress"
   - "Gold: access allow-list ignores inherited rows, rejects schema-, table- and catalog-level leaks, MODIFY on gold, broad groups, and missing USE SCHEMA/SELECT on gold"
   - "Gold: budget variance keeps store-months without budget and survives a zero budget"
+  - "Quality: clean data passes both gates (all checks)"
+  - "Quality: one ledger line edited in the landing file passes Silver row rules but fails journals_balance and stops the run, naming the journal"
+  - "Quality: duplicate keys and absurd amounts are critical; a one-day volume collapse is a warning that does not stop the run"
+  - "Quality: Gold that no longer adds up to Silver is critical"
+  - "Quality: quarantined money rows are critical, master rows only warn"
+  - "Quality: a missing store-day file and a refund larger than its sale are flagged"
+  - "Quality: Silver changing between the gates is critical; a >5% row-count drop warns"
+  - "Quality: lineage chains keep only this job's links and reach Bronze (fake lineage API)"
 
 # ──────────── toolchain ────────────
 toolchain:
