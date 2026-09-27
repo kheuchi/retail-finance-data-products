@@ -198,7 +198,15 @@ def main() -> None:
     daily, monthly, exceptions = (df.cache() for df in reconcile(pos_sales, gl_journal, fx_daily))
     n_days, n_diff, n_exc = daily.count(), daily.where("status = 'difference'").count(), exceptions.count()
     monthly.count()
-    for name, df in [("recon_gl_pos", daily), ("recon_gl_pos_monthly", monthly), ("recon_exceptions", exceptions)]:
+    # Write from a fresh, uncached plan so Unity Catalog records lineage to the Silver sources.
+    fresh = dict(
+        zip(
+            ("recon_gl_pos", "recon_gl_pos_monthly", "recon_exceptions"),
+            reconcile(pos_sales, gl_journal, fx_daily),
+            strict=True,
+        )
+    )
+    for name, df in fresh.items():
         df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{gold}.{name}")
 
     print(f"store-days {n_days:,} | matched {n_days - n_diff:,} | with difference {n_diff:,} | exceptions {n_exc}")

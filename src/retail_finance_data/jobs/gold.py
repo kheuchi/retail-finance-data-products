@@ -150,11 +150,13 @@ def budget_variance(lines, budget, last_day):
     return v.select("*", _ratio(F.col("variance_eur"), F.col("budget_to_date_eur"), "variance_pct"))
 
 
-def build(pos_sales, refunds_silver, products, stores, fx_daily, budget):
-    """Return a dict of Gold DataFrames, all computed from one cached pass over the sales lines."""
+def build(pos_sales, refunds_silver, products, stores, fx_daily, budget, cache: bool = True):
+    """Return a dict of Gold DataFrames, all computed from one pass over the sales lines
+    (cached for the checks; uncached for the writes, see ``main``)."""
     from pyspark.sql import functions as F
 
-    lines = sales_lines(pos_sales, products, stores, fx_daily).cache()
+    lines = sales_lines(pos_sales, products, stores, fx_daily)
+    lines = lines.cache() if cache else lines
     last_day = pos_sales.agg(F.max("business_date")).first()[0]
     return {
         "daily_revenue": daily_revenue(lines),
@@ -304,7 +306,12 @@ def main() -> None:
     if problems:
         raise RuntimeError("Gold refused: " + "; ".join(problems))
 
-    for name, df in gold.items():
+    # Write from a fresh, uncached plan: a cached DataFrame hides its source tables, and
+    # Unity Catalog then records no lineage for the table written from it.
+    fresh = build(*(silver[t] for t in names), cache=False)
+    for df in gold.values():
+        df.unpersist()
+    for name, df in fresh.items():
         target = f"{a.catalog}.gold.{name}"
         df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(target)
         spark.sql(f"ALTER TABLE {target} SET TBLPROPERTIES ('quality' = 'gold', 'story' = '4.3')")
