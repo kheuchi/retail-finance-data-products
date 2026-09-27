@@ -77,8 +77,9 @@ pipeline:
       task: "finance_tables (after reconcile_gl_pos), entry point build_gold_tables"
       tables: "gold.daily_revenue (store x channel x day), gold.margin (store x category x month), gold.refunds (store x cashier x month), gold.budget_variance (store x month)"
       definitions: "revenue = net sales EUR excl. VAT; gross margin = (net - cogs) / net; returns = refunds net of VAT; discount rate = discount / (paid + discount)"
-      budget: "month in progress compared with a pro-rated budget (complete_month flag)"
-      guards: "written only if Gold adds up to Silver (net sales, lines, refunds, stores) and finance-analysts cannot read raw/bronze/silver/ops (SHOW GRANTS)"
+      budget: "every store-month with sales in a budgeted year (has_budget flag); month in progress compared with revenue and cost budgets pro-rated to days with actuals (complete_month flag); ratios use try_divide"
+      guards: "written only if Gold adds up to Silver (net sales, lines, cost, refund count and amount, budget-year store-months) and an allow-list holds: finance-analysts only USE CATALOG/BROWSE on the catalog and USE SCHEMA + SELECT on gold; no grant to analysts, account users or users below gold (SHOW GRANTS on catalog/schemas judged where granted, information_schema.table_privileges for tables)"
+      naming: "paid_incl_vat_eur (not gross sales); net_sales_eur is before refunds; column comments on key columns"
       story: "control plane docs/stories/4.3-gold-finance-tables.md"
     story: "control plane docs/stories/4.2-gl-pos-reconciliation.md"
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
@@ -112,7 +113,8 @@ tests:
   - "Gold: tables add up to Silver (net sales, lines, transactions, refunds); a doubling join is caught"
   - "Gold: A2 discount creep visible (planted store's discount rate rises after start); A1 points at one cashier (>50% of no-receipt refunds)"
   - "Gold: budget variance pro-rates the month in progress"
-  - "Gold: access rules reject analysts below Gold, catalog-wide grants, and missing Gold SELECT"
+  - "Gold: access allow-list ignores inherited rows, rejects schema-, table- and catalog-level leaks, MODIFY on gold, broad groups, and missing USE SCHEMA/SELECT on gold"
+  - "Gold: budget variance keeps store-months without budget and survives a zero budget"
 
 # ──────────── toolchain ────────────
 toolchain:
