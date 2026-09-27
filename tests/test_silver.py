@@ -7,76 +7,10 @@ import pytest
 
 pytest.importorskip("pyspark")
 
-from pyspark.sql import SparkSession  # noqa: E402
+from conftest import build_all, with_rows  # noqa: E402
 from pyspark.sql import functions as F  # noqa: E402
-from test_generator import SMALL  # noqa: E402
 
-from retail_finance_data.jobs.generate import write_all  # noqa: E402
-from retail_finance_data.jobs.silver import (  # noqa: E402
-    ORDER,
-    SPECS,
-    apply_spec,
-    check_counts,
-    count_stats,
-    daily_fx,
-)
-
-
-@pytest.fixture(scope="module")
-def spark():
-    s = (
-        SparkSession.builder.master("local[2]")
-        .appName("silver-tests")
-        .config("spark.sql.shuffle.partitions", "4")
-        .config("spark.ui.enabled", "false")
-        .config("spark.sql.session.timeZone", "UTC")
-        .getOrCreate()
-    )
-    yield s
-    s.stop()
-
-
-@pytest.fixture(scope="module")
-def bronze(spark, tmp_path_factory):
-    """Bronze as Auto Loader leaves it: every column a string, plus the audit columns."""
-    out = tmp_path_factory.mktemp("landing")
-    write_all(SMALL, str(out))
-    return {
-        s: spark.read.option("header", "true")
-        .csv(str(out / s))
-        .select(
-            "*",
-            F.lit(None).cast("string").alias("_rescued_data"),
-            F.col("_metadata.file_path").alias("_source_file"),
-            F.lit(datetime(2026, 9, 26, 12)).alias("_ingested_at"),
-        )
-        for s in ORDER
-    }
-
-
-def build_all(bronze, override=None):
-    """Run every source in job order; ``override`` swaps in a modified Bronze DataFrame."""
-    override = override or {}
-    built, fx, stats, quarantine = {}, None, {}, {}
-    for s in ORDER:
-        source = override.get(s, bronze[s])
-        checked, silver, q = apply_spec(source, SPECS[s], built, fx)
-        built[s], stats[s], quarantine[s] = silver, count_stats(source, checked, silver, q), q
-        if s == "fx_rates":
-            fx = daily_fx(silver, "2026-07-01", "2026-09-30")
-    return built, stats, quarantine, fx
-
-
-@pytest.fixture(scope="module")
-def clean(bronze):
-    return build_all(bronze)
-
-
-def with_rows(spark, df, changes):
-    """``df`` plus copies of its first row, each updated with one dict of ``changes``."""
-    base = df.limit(1).collect()[0].asDict()
-    rows = [{**base, **c} for c in changes]
-    return df.unionByName(spark.createDataFrame(rows, schema=df.schema))
+from retail_finance_data.jobs.silver import check_counts, daily_fx  # noqa: E402
 
 
 def reasons(q):

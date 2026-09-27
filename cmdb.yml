@@ -66,7 +66,13 @@ pipeline:
     fx: "finance.silver.fx_daily: ECB rate per currency and day, last published rate carried over weekends and holidays; EUR = 1"
     invariant: "bronze = silver + quarantined + duplicates, per source; the job fails otherwise"
     story: "control plane docs/stories/4.1-silver-tables.md"
-  gold: "certified finance tables: revenue, refunds, margin, variance"
+  gold:
+    job: "build_gold (resources/gold.job.yml); first task reconcile_gl_pos, entry point reconcile_gl_pos"
+    reconciliation: "gold.recon_gl_pos (store x day), gold.recon_gl_pos_monthly, gold.recon_exceptions; GL account 4000 vs POS net EUR (lines converted unrounded, day rounded once); tolerance EUR 0.01"
+    attribution: "by amount, not label: the journal matching the POS total explains the day; other revenue journals on a difference day are suspects; unattributable differences still reported"
+    scoring: "ops.detection_scores: planted / found / missed / false positives vs landing/_ground_truth (synthetic data only)"
+    finance_tables: "revenue, refunds, margin, budget variance (story 4.3, next)"
+    story: "control plane docs/stories/4.2-gl-pos-reconciliation.md"
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
   compute: "finance-jobs cluster policy (job clusters: small, spot, single node default; stop when the job ends)"
 
@@ -86,13 +92,17 @@ tests:
   - "Silver: bad rows quarantined with the right reason (bad type, negative quantity, unknown store, gross != net + vat, missing sku); later duplicate wins"
   - "Silver: receipted refunds must point at a real sale"
   - "Silver: the count check fails when rows go missing"
+  - "Reconciliation: flags exactly the 4 planted A3 journals (4 found, 0 missed, 0 false positives)"
+  - "Reconciliation: every other store-day matches to the cent"
+  - "Reconciliation: a fake revenue journal labelled POS is still caught (amounts, not labels)"
+  - "Reconciliation: sales missing from the books are reported as an unattributed difference"
 
 # ──────────── toolchain ────────────
 toolchain:
   local: "WSL2; project venv in .venv (numpy, pandas, pyspark 4.0, pytest, ruff, build) installed 2026-09-26"
   java: "Temurin 17 JRE in ~/.local/jdk17 (user install, no sudo) on 2026-09-26, for local Spark tests; export JAVA_HOME=$HOME/.local/jdk17"
   databricks_cli: "v1.18.0 binary installed in ~/.local/bin on 2026-09-26 (no sudo)"
-  ci: "ci.yml: ruff + pytest (incl. local Spark, runner's Java 17) on Python 3.12, bundle validate; deploy.yml: manual, typed 'deploy', choice of job to run (none, generate_and_ingest, transform_silver)"
+  ci: "ci.yml: ruff + pytest (incl. local Spark, runner's Java 17) on Python 3.12, bundle validate; deploy.yml: manual, typed 'deploy', choice of job to run (none, generate_and_ingest, transform_silver, build_gold)"
   auth: "service principal terraform-platform; DATABRICKS_CLIENT_ID variable + DATABRICKS_CLIENT_SECRET secret"
   runtime: "wheel with no dependencies, uploaded to UC volume finance.ops.artifacts; numpy/pandas/pyspark come from Databricks Runtime 17.3 LTS"
   security: "bundle deployed to the service principal's own folder, not /Workspace/Shared (would let any user edit code that runs as the principal)"
