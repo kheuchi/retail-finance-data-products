@@ -1,16 +1,24 @@
 """Job: reconcile general-ledger revenue with point-of-sale sales (story 4.2).
 
 POS (the tills) and GL (the accounting books) are two independent records of the same
-revenue. Each day's sales are booked to revenue (account 4000) in one journal, so per
-store and day the two must agree. A revenue journal with no sales behind it inflates the
-books: the classic way to fake results.
+revenue. Each day's sales are booked to revenue in one journal, so per store and day the
+two must agree. A revenue journal with no sales behind it inflates the books: the classic
+way to fake results.
 
-The check compares amounts, never labels. On each store-day, the revenue journal whose
-amount equals the POS total is the one that explains the sales; any other revenue journal
-on a day that does not reconcile is a suspect, whatever its ``source`` says. Every
-difference is reported, attributed to a journal or not.
+Attribution uses amounts, not labels. On each store-day with a difference:
 
-Exceptions are business findings, not job failures: the job fails only if it cannot run.
+- no POS sales at all: every revenue journal is unsupported;
+- exactly one journal equals the POS total: it explains the sales, the others are unsupported;
+- several journals equal the POS total: all of them are reported as a duplicate posting;
+- none equals it: the day is reported once, not attributable to a journal.
+
+Every difference is reported. Exceptions are business findings, not job failures. The job
+fails before writing anything if its inputs are incomplete (no sales, no revenue lines,
+missing FX rates, or rows still in Silver quarantine): a reconciliation on partial data
+would accuse the wrong journals.
+
+Scope: revenue means ``REVENUE_ACCOUNTS``. Fake revenue booked to another account is out
+of reach of this control (recorded as an accepted limit in the story).
 """
 
 from __future__ import annotations
@@ -18,34 +26,61 @@ from __future__ import annotations
 import argparse
 
 TOLERANCE = 0.01  # EUR: the books balance by construction, so only rounding is allowed
+REVENUE_ACCOUNTS = ("4000",)
 ANOMALY = "A3_unsupported_manual_revenue"
 
+UNSUPPORTED = "no matching POS sales"
+DUPLICATE = "duplicate posting: several journals match the POS total"
+UNATTRIBUTED = "difference not attributable to a journal"
 
-def pos_daily(pos_sales, fx_daily):
-    """POS net sales in EUR per store and day.
 
-    Lines are converted unrounded and the day is rounded once, the way the daily journal
-    is booked; summing the 4-decimal line amounts instead would drift by cents.
-    """
+def pos_lines_eur(pos_sales, fx_daily):
     from pyspark.sql import functions as F
 
     rate = fx_daily.select(F.col("rate_date").alias("business_date"), "currency", "units_per_eur")
-    return (
-        pos_sales.join(F.broadcast(rate), ["business_date", "currency"], "left")
-        .groupBy("store_id", "business_date")
-        .agg(F.round(F.sum(F.col("net_amount") / F.col("units_per_eur")), 2).cast("decimal(18,2)").alias("pos_net_eur"))
+    return pos_sales.join(F.broadcast(rate), ["business_date", "currency"], "left")
+
+
+def pos_daily(lines):
+    """POS net sales in EUR per store and day.
+
+    Lines are converted unrounded and the day is rounded once, the way the daily journal is
+    booked; summing the 4-decimal line amounts instead would drift by cents.
+    """
+    from pyspark.sql import functions as F
+
+    return lines.groupBy("store_id", "business_date").agg(
+        F.round(F.sum(F.col("net_amount") / F.col("units_per_eur")), 2).cast("decimal(18,2)").alias("pos_net_eur")
     )
 
 
 def revenue_journals(gl_journal):
-    """Revenue booked per journal (account 4000: credits minus debits)."""
+    """Revenue booked per journal: credits minus debits on the revenue accounts."""
     from pyspark.sql import functions as F
 
     return (
-        gl_journal.where(F.col("account_code") == "4000")
+        gl_journal.where(F.col("account_code").isin(*REVENUE_ACCOUNTS))
         .groupBy("journal_id", "store_id", F.col("posting_date").alias("business_date"), "source", "description")
         .agg(F.sum(F.col("credit_eur") - F.col("debit_eur")).cast("decimal(18,2)").alias("amount_eur"))
     )
+
+
+def check_inputs(pos_sales, gl_journal, fx_daily, quarantined: int = 0) -> None:
+    """Refuse to reconcile partial data. Raises before anything is written."""
+    from pyspark.sql import functions as F
+
+    problems = []
+    if pos_sales.limit(1).count() == 0:
+        problems.append("no POS sales")
+    if gl_journal.where(F.col("account_code").isin(*REVENUE_ACCOUNTS)).limit(1).count() == 0:
+        problems.append("no revenue lines in the GL")
+    missing = pos_lines_eur(pos_sales, fx_daily).where(F.col("units_per_eur").isNull()).count()
+    if missing:
+        problems.append(f"{missing} POS lines without an FX rate")
+    if quarantined:
+        problems.append(f"{quarantined} pos_sales/gl_journal rows still in silver.quarantine")
+    if problems:
+        raise RuntimeError("Reconciliation refused, inputs incomplete: " + "; ".join(problems))
 
 
 def reconcile(pos_sales, gl_journal, fx_daily):
@@ -53,7 +88,7 @@ def reconcile(pos_sales, gl_journal, fx_daily):
     from pyspark.sql import Window
     from pyspark.sql import functions as F
 
-    pos = pos_daily(pos_sales, fx_daily)
+    pos = pos_daily(pos_lines_eur(pos_sales, fx_daily))
     journals = revenue_journals(gl_journal)
     gl = journals.groupBy("store_id", "business_date").agg(F.sum("amount_eur").alias("gl_revenue_eur"))
 
@@ -75,14 +110,22 @@ def reconcile(pos_sales, gl_journal, fx_daily):
         .withColumn("status", F.when(F.col("days_with_difference") == 0, "matched").otherwise("difference"))
     )
 
-    # On each store-day, the journal closest to the POS total explains the sales if it matches it.
-    by_day = Window.partitionBy("store_id", "business_date").orderBy(
-        F.abs(F.col("amount_eur") - F.col("pos_net_eur")), "journal_id"
+    day = Window.partitionBy("store_id", "business_date")
+    matches = F.abs(F.col("amount_eur") - F.col("pos_net_eur")) <= TOLERANCE
+    tagged = (
+        journals.join(daily.where(F.col("status") == "difference"), ["store_id", "business_date"])
+        .withColumn("matches", matches)
+        .withColumn("n_match", F.sum(F.col("matches").cast("int")).over(day))
+        .withColumn(
+            "reason",
+            F.when(F.col("pos_net_eur") == 0, F.lit(UNSUPPORTED))
+            .when((F.col("n_match") == 1) & ~F.col("matches"), F.lit(UNSUPPORTED))
+            .when((F.col("n_match") > 1) & F.col("matches"), F.lit(DUPLICATE))
+            .when((F.col("n_match") > 1) & ~F.col("matches"), F.lit(UNSUPPORTED)),
+        )
     )
-    ranked = journals.join(daily, ["store_id", "business_date"]).withColumn("rn", F.row_number().over(by_day))
-    explains = (F.col("rn") == 1) & (F.abs(F.col("amount_eur") - F.col("pos_net_eur")) <= TOLERANCE)
-    suspects = ranked.where((F.col("status") == "difference") & ~explains).select(
-        "store_id", "business_date", "journal_id", "source", "description", "amount_eur"
+    suspects = tagged.where(F.col("reason").isNotNull()).select(
+        "store_id", "business_date", "journal_id", "source", "description", "amount_eur", "reason"
     )
     attributed = suspects.groupBy("store_id", "business_date").agg(F.sum("amount_eur").alias("attributed_eur"))
 
@@ -90,16 +133,6 @@ def reconcile(pos_sales, gl_journal, fx_daily):
         daily.where(F.col("status") == "difference")
         .join(suspects, ["store_id", "business_date"], "left")
         .join(attributed, ["store_id", "business_date"], "left")
-        .withColumn(
-            "unexplained_eur",
-            (F.col("difference_eur") - F.coalesce("attributed_eur", F.lit(0))).cast("decimal(18,2)"),
-        )
-        .withColumn(
-            "reason",
-            F.when(F.col("journal_id").isNotNull(), "no matching POS sales").otherwise(
-                "difference not attributable to a journal"
-            ),
-        )
         .select(
             "store_id",
             "business_date",
@@ -107,11 +140,14 @@ def reconcile(pos_sales, gl_journal, fx_daily):
             "source",
             "description",
             "amount_eur",
-            "gl_revenue_eur",
-            "pos_net_eur",
-            "difference_eur",
-            "unexplained_eur",
-            "reason",
+            F.coalesce("reason", F.lit(UNATTRIBUTED)).alias("reason"),
+            # Day totals repeat on each row of the day: never sum them over the table.
+            F.col("gl_revenue_eur").alias("day_gl_revenue_eur"),
+            F.col("pos_net_eur").alias("day_pos_net_eur"),
+            F.col("difference_eur").alias("day_difference_eur"),
+            (F.col("difference_eur") - F.coalesce("attributed_eur", F.lit(0)))
+            .cast("decimal(18,2)")
+            .alias("day_unexplained_eur"),
         )
     )
     return daily, monthly, exceptions
@@ -127,6 +163,23 @@ def score(found: set[str], planted: set[str]) -> dict:
     }
 
 
+def read_answer_key(spark, path: str) -> set[str] | None:
+    """Planted A3 journal ids, or None when there is no answer key (real data has none)."""
+    from pyspark.errors import AnalysisException
+    from pyspark.sql import functions as F
+
+    try:
+        truth = spark.read.option("header", "true").csv(path)
+    except AnalysisException as e:
+        if "PATH_NOT_FOUND" in str(e):
+            return None
+        raise
+    planted = {r[0] for r in truth.where(F.col("anomaly") == ANOMALY).select("entity_id").collect()}
+    if not planted:
+        raise RuntimeError(f"Answer key {path} has no {ANOMALY} rows: cannot score.")
+    return planted
+
+
 def main() -> None:
     from pyspark.sql import SparkSession
     from pyspark.sql import functions as F
@@ -136,43 +189,33 @@ def main() -> None:
     a = p.parse_args()
     spark = SparkSession.builder.getOrCreate()
     silver, gold = f"{a.catalog}.silver", f"{a.catalog}.gold"
+    pos_sales, gl_journal, fx_daily = (spark.table(f"{silver}.{t}") for t in ("pos_sales", "gl_journal", "fx_daily"))
 
-    daily, monthly, exceptions = reconcile(
-        spark.table(f"{silver}.pos_sales"), spark.table(f"{silver}.gl_journal"), spark.table(f"{silver}.fx_daily")
-    )
+    quarantined = spark.table(f"{silver}.quarantine").where(F.col("source").isin("pos_sales", "gl_journal")).count()
+    check_inputs(pos_sales, gl_journal, fx_daily, quarantined)
+
+    # Compute and check everything first, then write, so the three tables come from one run.
+    daily, monthly, exceptions = (df.cache() for df in reconcile(pos_sales, gl_journal, fx_daily))
+    n_days, n_diff, n_exc = daily.count(), daily.where("status = 'difference'").count(), exceptions.count()
+    monthly.count()
     for name, df in [("recon_gl_pos", daily), ("recon_gl_pos_monthly", monthly), ("recon_exceptions", exceptions)]:
         df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{gold}.{name}")
 
-    days = spark.table(f"{gold}.recon_gl_pos")
-    n_days = days.count()
-    if n_days == 0:
-        raise RuntimeError("Reconciliation produced no store-days: Silver is empty or unreadable.")
-    n_diff = days.where("status = 'difference'").count()
-    exc = spark.table(f"{gold}.recon_exceptions")
-    print(f"store-days {n_days:,} | matched {n_days - n_diff:,} | with difference {n_diff:,}", flush=True)
-    exc.orderBy("business_date").show(50, truncate=False)
+    print(f"store-days {n_days:,} | matched {n_days - n_diff:,} | with difference {n_diff:,} | exceptions {n_exc}")
+    exceptions.orderBy("business_date", "journal_id").show(50, truncate=False)
 
-    truth = f"/Volumes/{a.catalog}/raw/landing/_ground_truth/planted_records.csv"
-    try:
-        planted = {
-            r[0]
-            for r in spark.read.option("header", "true")
-            .csv(truth)
-            .where(F.col("anomaly") == ANOMALY)
-            .select("entity_id")
-            .collect()
-        }
-    except Exception as e:  # the answer key exists only for synthetic data
-        print(f"No ground truth scored ({type(e).__name__}).", flush=True)
+    planted = read_answer_key(spark, f"/Volumes/{a.catalog}/raw/landing/_ground_truth/planted_records.csv")
+    if planted is None:
+        print("No answer key: detection not scored (expected on real data).", flush=True)
         return
-    found = {r[0] for r in exc.where("journal_id IS NOT NULL").select("journal_id").collect()}
+    found = {r[0] for r in exceptions.where("journal_id IS NOT NULL").select("journal_id").collect()}
     s = score(found, planted)
     print(f"A3 detection: {s}", flush=True)
     (
         spark.createDataFrame([("gl_pos_reconciliation", ANOMALY, *s.values())])
         .toDF("control", "anomaly", "planted", "found", "missed", "false_positives")
         .withColumn("scored_at", F.current_timestamp())
-        .write.mode("append")
+        .write.mode("append")  # a history: one row per run, timestamped
         .saveAsTable(f"{a.catalog}.ops.detection_scores")
     )
 

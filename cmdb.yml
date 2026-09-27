@@ -69,7 +69,9 @@ pipeline:
   gold:
     job: "build_gold (resources/gold.job.yml); first task reconcile_gl_pos, entry point reconcile_gl_pos"
     reconciliation: "gold.recon_gl_pos (store x day), gold.recon_gl_pos_monthly, gold.recon_exceptions; GL account 4000 vs POS net EUR (lines converted unrounded, day rounded once); tolerance EUR 0.01"
-    attribution: "by amount, not label: the journal matching the POS total explains the day; other revenue journals on a difference day are suspects; unattributable differences still reported"
+    attribution: "by amount, not label: no POS -> every revenue journal unsupported; one journal equals POS -> the others unsupported; several equal POS -> all reported as duplicate posting; none -> day reported, no journal blamed"
+    guards: "refuses to write when POS or revenue lines are empty, an FX rate is missing, or pos_sales/gl_journal rows sit in silver.quarantine"
+    limit: "revenue = REVENUE_ACCOUNTS (4000); fake revenue on another account is out of reach (accepted, story 4.2)"
     scoring: "ops.detection_scores: planted / found / missed / false positives vs landing/_ground_truth (synthetic data only)"
     finance_tables: "revenue, refunds, margin, budget variance (story 4.3, next)"
     story: "control plane docs/stories/4.2-gl-pos-reconciliation.md"
@@ -96,6 +98,11 @@ tests:
   - "Reconciliation: every other store-day matches to the cent"
   - "Reconciliation: a fake revenue journal labelled POS is still caught (amounts, not labels)"
   - "Reconciliation: sales missing from the books are reported as an unattributed difference"
+  - "Reconciliation: a fake equal to the POS total is reported with the genuine journal as a duplicate posting (no alphabetical tie-break)"
+  - "Reconciliation: a fake on a day without sales is unsupported"
+  - "Reconciliation: when no journal matches, the day is reported once and no journal is blamed"
+  - "Reconciliation: monthly differences equal the planted amounts per store"
+  - "Reconciliation: refuses incomplete inputs (no sales, missing FX rate, rows in quarantine); answer key missing = not scored, present but empty = failure"
 
 # ──────────── toolchain ────────────
 toolchain:
