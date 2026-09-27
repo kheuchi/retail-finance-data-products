@@ -1,0 +1,40 @@
+resources:
+  jobs:
+    build_gold:
+      name: "[finance] build gold"
+      description: >
+        Builds finance.gold from finance.silver. First task: reconcile general-ledger
+        revenue with POS sales per store and day, list every difference with the journal
+        that causes it, and score detection against the generator's answer key.
+        Gold finance tables (story 4.3) will be added as further tasks.
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      tags:
+        CostCenter: finance-data-platform
+        Layer: gold
+
+      job_clusters:
+        - job_cluster_key: finance_jobs
+          new_cluster:
+            policy_id: ${var.jobs_policy_id}
+            apply_policy_default_values: true
+            spark_version: 17.3.x-scala2.13
+            node_type_id: m6gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            single_user_name: ${var.runner}
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: local[*]
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: reconcile_gl_pos
+          job_cluster_key: finance_jobs
+          python_wheel_task:
+            package_name: retail_finance_data
+            entry_point: reconcile_gl_pos
+            parameters: ["--catalog", "${var.catalog}"]
+          libraries:
+            - whl: ../dist/*.whl  # relative to this file, not the repo root

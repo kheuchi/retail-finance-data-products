@@ -19,6 +19,7 @@ dev = ["numpy>=1.26,<3", "pandas>=2.2,<3", "pyspark>=4.0,<4.1", "pytest>=8", "ru
 generate = "retail_finance_data.jobs.generate:main"
 ingest_bronze = "retail_finance_data.jobs.bronze:main"
 build_silver = "retail_finance_data.jobs.silver:main"
+reconcile_gl_pos = "retail_finance_data.jobs.reconcile:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

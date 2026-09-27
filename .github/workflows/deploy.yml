@@ -12,7 +12,7 @@ on:
         required: true
         type: choice
         default: none
-        options: [none, generate_and_ingest, transform_silver]
+        options: [none, generate_and_ingest, transform_silver, build_gold]
 
 concurrency:
   group: deploy-databricks-data
