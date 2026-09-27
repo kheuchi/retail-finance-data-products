@@ -6,7 +6,8 @@ resources:
         Builds finance.gold from finance.silver. First task: reconcile general-ledger
         revenue with POS sales per store and day, list every difference with the journal
         that causes it, and score detection against the generator's answer key.
-        Gold finance tables (story 4.3) will be added as further tasks.
+        Second task: the finance tables (daily revenue, margin, refunds, budget variance),
+        written only if they add up to Silver and analysts cannot read below Gold.
       max_concurrent_runs: 1
       timeout_seconds: 3600
       tags:
@@ -35,6 +36,17 @@ resources:
           python_wheel_task:
             package_name: retail_finance_data
             entry_point: reconcile_gl_pos
+            parameters: ["--catalog", "${var.catalog}"]
+          libraries:
+            - whl: ../dist/*.whl  # relative to this file, not the repo root
+
+        - task_key: finance_tables
+          depends_on:
+            - task_key: reconcile_gl_pos
+          job_cluster_key: finance_jobs
+          python_wheel_task:
+            package_name: retail_finance_data
+            entry_point: build_gold_tables
             parameters: ["--catalog", "${var.catalog}"]
           libraries:
             - whl: ../dist/*.whl  # relative to this file, not the repo root

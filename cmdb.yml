@@ -73,7 +73,14 @@ pipeline:
     guards: "refuses to write when POS or revenue lines are empty, an FX rate is missing, or pos_sales/gl_journal rows sit in silver.quarantine"
     limit: "revenue = REVENUE_ACCOUNTS (4000); fake revenue on another account is out of reach (accepted, story 4.2)"
     scoring: "ops.detection_scores: planted / found / missed / false positives vs landing/_ground_truth (synthetic data only)"
-    finance_tables: "revenue, refunds, margin, budget variance (story 4.3, next)"
+    finance_tables:
+      task: "finance_tables (after reconcile_gl_pos), entry point build_gold_tables"
+      tables: "gold.daily_revenue (store x channel x day), gold.margin (store x category x month), gold.refunds (store x cashier x month), gold.budget_variance (store x month)"
+      definitions: "revenue = net sales EUR excl. VAT; gross margin = (net - cogs) / net; returns = refunds net of VAT; discount rate = discount / (paid + discount)"
+      budget: "every store-month with sales in a budgeted year (has_budget flag); month in progress compared with revenue and cost budgets pro-rated to days with actuals (complete_month flag); ratios use try_divide"
+      guards: "written only if Gold adds up to Silver (net sales, lines, cost, refund count and amount, budget-year store-months) and an allow-list holds: finance-analysts only USE CATALOG/BROWSE on the catalog and USE SCHEMA + SELECT on gold; no grant to analysts, account users or users below gold (SHOW GRANTS on catalog/schemas judged where granted, information_schema.table_privileges for tables)"
+      naming: "paid_incl_vat_eur (not gross sales); net_sales_eur is before refunds; column comments on key columns"
+      story: "control plane docs/stories/4.3-gold-finance-tables.md"
     story: "control plane docs/stories/4.2-gl-pos-reconciliation.md"
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
   compute: "finance-jobs cluster policy (job clusters: small, spot, single node default; stop when the job ends)"
@@ -103,6 +110,11 @@ tests:
   - "Reconciliation: when no journal matches, the day is reported once and no journal is blamed"
   - "Reconciliation: monthly differences equal the planted amounts per store"
   - "Reconciliation: refuses incomplete inputs (no sales, missing FX rate, rows in quarantine); answer key missing = not scored, present but empty = failure"
+  - "Gold: tables add up to Silver (net sales, lines, transactions, refunds); a doubling join is caught"
+  - "Gold: A2 discount creep visible (planted store's discount rate rises after start); A1 points at one cashier (>50% of no-receipt refunds)"
+  - "Gold: budget variance pro-rates the month in progress"
+  - "Gold: access allow-list ignores inherited rows, rejects schema-, table- and catalog-level leaks, MODIFY on gold, broad groups, and missing USE SCHEMA/SELECT on gold"
+  - "Gold: budget variance keeps store-months without budget and survives a zero budget"
 
 # ──────────── toolchain ────────────
 toolchain:
