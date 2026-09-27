@@ -16,6 +16,7 @@ from retail_finance_data.jobs.quality import (  # noqa: E402
     compare_counts,
     compare_snapshots,
     enforce,
+    identity_checks,
     lineage_chains,
     run_checks,
 )
@@ -160,3 +161,29 @@ def test_lineage_chains_keep_only_this_jobs_links_and_reach_bronze():
 
     chains = lineage_chains(api_get, "finance", job_id=42)
     assert chains == [("finance.gold.margin", "finance.silver.pos_sales", "finance.bronze.pos_sales")]
+
+
+def test_identity_checks_pass_when_the_runner_is_powerless():
+    executed = []
+
+    def sql(q):
+        executed.append(q)
+        if q.startswith("GRANT"):
+            raise PermissionError("PERMISSION_DENIED")
+        return [{"u": "runner-app-id", "admin": False}]
+
+    results = by_name(identity_checks(sql, "finance"))
+    assert results["runner_not_admin"]["passed"] and results["runner_cannot_grant"]["passed"]
+    assert not any(q.startswith("REVOKE") for q in executed)
+
+
+def test_identity_checks_fail_and_revoke_when_the_runner_can_grant():
+    executed = []
+
+    def sql(q):
+        executed.append(q)
+        return [{"u": "terraform-platform", "admin": True}]
+
+    results = by_name(identity_checks(sql, "finance"))
+    assert not results["runner_not_admin"]["passed"] and not results["runner_cannot_grant"]["passed"]
+    assert executed[-1] == "REVOKE SELECT ON SCHEMA finance.silver TO `finance-analysts`"

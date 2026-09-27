@@ -25,8 +25,11 @@ variables:
     lookup:
       cluster_policy: finance-jobs
   runner:
-    description: Application ID of the service principal that owns and runs the jobs. Not a secret.
-    default: 57d9d765-48e5-45b6-9da0-4c3472830123
+    description: >
+      Application ID of finance-pipeline-runner, the identity jobs run as (story 4.5).
+      It can read and write the finance schemas and nothing else. The bundle itself is
+      deployed by finance-data-deployer (GitHub Actions credentials). Not a secret.
+    default: 11af38fd-b618-4649-80db-40092db9713b
 
 targets:
   prod:
