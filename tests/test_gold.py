@@ -15,6 +15,7 @@ from retail_finance_data.jobs.gold import (  # noqa: E402
     build,
     check_access,
     check_totals,
+    grants_visible,
     sales_lines,
 )
 
@@ -152,3 +153,11 @@ def test_access_requires_use_schema_and_select_on_gold():
     assert check_access([("finance-analysts", "SELECT", "SCHEMA", f"{C}.gold")]) == [
         "finance-analysts lacks USE SCHEMA on gold"
     ]
+
+
+def test_grants_visibility():
+    """The runner sees only its own grants: the allow-list is then the platform audit's job."""
+    runner_view = [("runner-id", "USE CATALOG", "CATALOG", C), ("runner-id", "SELECT", "SCHEMA", f"{C}.gold")]
+    admin_view = [*runner_view, ("finance-analysts", "USE CATALOG", "CATALOG", C)]
+    assert not grants_visible(runner_view, "runner-id")
+    assert grants_visible(admin_view, "runner-id")
