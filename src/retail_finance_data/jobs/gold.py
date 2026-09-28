@@ -224,6 +224,11 @@ def check_access(grants: list[tuple[str, str, str, str]]) -> list[str]:
     return problems
 
 
+def grants_visible(grants: list[tuple[str, str, str, str]], me: str) -> bool:
+    """True when the job identity can see grants held by principals other than itself."""
+    return any(principal != me for principal, *_ in grants)
+
+
 def read_grants(spark, catalog: str) -> list[tuple[str, str, str, str]]:
     """Direct grants on the catalog, every schema, and every table below Gold."""
     rows = []
@@ -302,7 +307,16 @@ def main() -> None:
     for g in grants:
         print("grant", g, flush=True)
     gold = {name: df.cache() for name, df in build(*(silver[t] for t in names)).items()}
-    problems = check_access(grants) + check_totals(gold, silver["pos_sales"], silver["refunds"], silver["budget"])
+    # Only owners and admins see other principals' grants. The job runs as finance-pipeline-runner,
+    # which cannot (by design, story 4.5), so the allow-list is enforced by the platform's access
+    # audit in the infra repo's CI. When the job can see them (an admin run), it enforces it too.
+    me = spark.sql("SELECT current_user()").first()[0]
+    if grants_visible(grants, me):
+        problems = check_access(grants)
+    else:
+        problems = []
+        print(f"access allow-list: grants of other principals not visible to {me}; enforced by the platform audit")
+    problems += check_totals(gold, silver["pos_sales"], silver["refunds"], silver["budget"])
     if problems:
         raise RuntimeError("Gold refused: " + "; ".join(problems))
 
