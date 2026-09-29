@@ -60,9 +60,13 @@ def margin_table(creep_store="S007", start="2026-06"):
     )
 
 
-def test_features_never_use_the_answer_key():
-    banned = {"anomaly", "planted", "is_fraud", "label", "cashier_id", "store_id"}
-    assert not banned & set(ml.CASHIER_FEATURES) and not banned & set(ml.MARGIN_FEATURES)
+def test_the_model_sees_only_its_feature_columns_never_the_answer_key():
+    """Even if an answer-key column sits in the frame, the detector's input is exactly its features."""
+    table = refunds_table()
+    table["planted"] = table["cashier_id"].eq("S005-C03")
+    model, _, _ = ml.isolation_scores(ml.cashier_features(table), ml.CASHIER_FEATURES, contamination=0.005)
+    assert model.n_features_in_ == len(ml.CASHIER_FEATURES)
+    assert not {"planted", "anomaly", "cashier_id", "store_id"} & set(ml.CASHIER_FEATURES + ml.MARGIN_FEATURES)
 
 
 def test_cashier_detector_ranks_the_fraudster_first():
@@ -74,13 +78,15 @@ def test_cashier_detector_ranks_the_fraudster_first():
 
 
 def test_margin_detector_finds_the_creeping_store_not_the_chain_promotion():
-    mf = ml.margin_features(margin_table())
+    mf, dropped = ml.margin_features(margin_table())
+    assert dropped > 0  # first months of each store have no history: counted, not hidden
     _, score, flag = ml.isolation_scores(mf, ml.MARGIN_FEATURES, contamination=0.02)
     alerts = ml.ranked(mf, score, flag, ["store_id"])
     ev = ml.evaluate_detector(alerts, "store_id", "S007", ["2026-08", "2026-09"])
     assert ev["in_top"], ev
     july = alerts[alerts["month"] == "2026-07"]
     assert july["flagged"].sum() <= 2  # a chain-wide promotion is netted out
+    assert set(ev["false_flags_by_month"]) == {"2026-08", "2026-09"}
 
 
 def daily_table():
@@ -107,7 +113,17 @@ def test_backtest_picks_the_better_method_and_forecast_has_ordered_ranges():
     bt = ml.backtest(panel, pd.Period("2026-08", "M"))
     assert bt["winner"] in ("model", "baseline")
     assert bt["winner"] == ("model" if bt["model_mape"] < bt["baseline_mape"] else "baseline")
-    fc = ml.forecast(panel, pd.Period("2026-08", "M"), bt["winner"], bt["errors"][bt["winner"]])
+    assert set(bt["train_rows_by_horizon"]) == {1, 2, 3}  # every horizon is trained, not just the easy one
+    fc, model = ml.forecast(panel, pd.Period("2026-08", "M"), bt["winner"], bt["errors"][bt["winner"]])
+    assert (model is None) == (bt["winner"] == "baseline")
     assert set(fc["month"]) == {"2026-09", "2026-10", "2026-11"}
     assert (fc["low_80_eur"] <= fc["forecast_eur"]).all() and (fc["forecast_eur"] <= fc["high_80_eur"]).all()
     assert len(fc) == 30
+
+
+def test_ranks_are_stable_across_reruns():
+    cf = ml.cashier_features(refunds_table())
+    runs = [
+        ml.ranked(cf, *ml.isolation_scores(cf, ml.CASHIER_FEATURES)[1:], ["store_id", "cashier_id"]) for _ in range(2)
+    ]
+    pd.testing.assert_frame_equal(runs[0], runs[1])
