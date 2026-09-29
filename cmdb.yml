@@ -94,6 +94,19 @@ pipeline:
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
   compute: "finance-jobs cluster policy (job clusters: small, spot, single node default; stop when the job ends)"
 
+# ──────────── ml ────────────
+ml:
+  job: "train_models (resources/ml.job.yml), entry point train_models; reads certified Gold only (latest ops.gold_certification row)"
+  experiment: "bundle resource finance_ml at the deployer's workspace home; runner CAN_MANAGE"
+  registry: "Unity Catalog finance.ml: fraud_cashier_refunds, fraud_store_margin, revenue_forecast (only if the model wins)"
+  fraud_cashier: "IsolationForest (contamination 0.005) on cashier-month features vs store peers; scores in gold.fraud_scores"
+  fraud_margin: "IsolationForest (contamination 0.02) on store-month margin drop and discount rise vs the store's own months 4-12 back (a creep cannot become its own baseline), net of the chain-wide move; scores in gold.margin_alerts"
+  forecast: "gradient boosting (ratio to last year's month; features lag 12/1/2, month, horizon, store level) vs seasonal-naive baseline; backtest on last 3 complete months, 200 training rows per horizon; winner writes gold.revenue_forecast with an 80% range per horizon; registered only when the model wins (the baseline is a formula)"
+  outputs: "gold.fraud_scores, gold.margin_alerts, gold.revenue_forecast carry gold_run and scored_at; written after MLflow logging and registration, so a failure leaves Gold untouched"
+  review_2026_09_29: "independent review before merge: starved forecast training, missing signature for UC registration, false alarms not per month, answer-key dependency, partial writes, self-absorbing margin baseline, unstable ranks: all fixed; employee-level fraud scores readable by analysts: accepted risk R-12 (control plane)"
+  probe_2026_09_29: "full data locally after review fixes: A1 rank 1 Aug and Sep (false alarms 3, 2); A2 rank 1 Jul, Aug, Sep (false alarms 0, 1, 0); forecast baseline MAPE 7.5% beats model 10.3%"
+  story: "control plane docs/stories/5.1-fraud-detection.md, 5.2-revenue-forecast.md"
+
 # ──────────── tests ────────────
 tests:
   - "Same seed gives identical data"
@@ -132,6 +145,9 @@ tests:
   - "Quality: a missing store-day file and a refund larger than its sale are flagged"
   - "Quality: Silver changing between the gates is critical; a >5% row-count drop warns"
   - "Quality: lineage chains keep only this job's links and reach Bronze (fake lineage API)"
+  - "ML: no answer-key column is a model feature"
+  - "ML: cashier detector ranks a planted fraudster first; margin detector finds a creeping store and ignores a chain-wide promotion"
+  - "ML: baseline = last year x recent growth; backtest picks the better method; forecast ranges are ordered"
 
 # ──────────── toolchain ────────────
 toolchain:

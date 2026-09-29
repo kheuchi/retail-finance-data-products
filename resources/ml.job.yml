@@ -1,0 +1,47 @@
+resources:
+  experiments:
+    finance_ml:
+      name: /Workspace/Users/${workspace.current_user.userName}/finance-ml
+      description: Fraud detectors and revenue forecast on certified Gold (stories 5.1, 5.2).
+      permissions:
+        - service_principal_name: ${var.runner}
+          level: CAN_MANAGE
+
+  jobs:
+    train_models:
+      name: "[finance] train and score models"
+      description: >
+        Reads certified Gold only. Trains two unsupervised fraud detectors (cashier refunds,
+        store margin drift) and a revenue forecast that ships only if it beats a seasonal-naive
+        baseline. Tracks runs in MLflow, registers models in finance.ml, writes scores to Gold.
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      tags:
+        CostCenter: finance-data-platform
+        Layer: ml
+
+      job_clusters:
+        - job_cluster_key: finance_jobs
+          new_cluster:
+            policy_id: ${var.jobs_policy_id}
+            apply_policy_default_values: true
+            spark_version: 17.3.x-scala2.13
+            node_type_id: m6gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            single_user_name: ${var.runner}
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: local[*]
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: train_and_score
+          job_cluster_key: finance_jobs
+          python_wheel_task:
+            package_name: retail_finance_data
+            entry_point: train_models
+            parameters: ["--catalog", "${var.catalog}", "--experiment", "${resources.experiments.finance_ml.name}"]
+          libraries:
+            - whl: ../dist/*.whl  # relative to this file, not the repo root
