@@ -13,7 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 # pyspark matches Databricks Runtime 17.3 LTS (Spark 4.0); the Silver tests need Java 17+.
-dev = ["numpy>=1.26,<3", "pandas>=2.2,<3", "pyspark>=4.0,<4.1", "pytest>=8", "ruff>=0.6"]
+dev = ["numpy>=1.26,<3", "pandas>=2.2,<3", "pyspark>=4.0,<4.1", "pytest>=8", "ruff>=0.6", "scikit-learn>=1.5,<1.8"]
 
 [project.scripts]
 generate = "retail_finance_data.jobs.generate:main"
@@ -22,6 +22,7 @@ build_silver = "retail_finance_data.jobs.silver:main"
 reconcile_gl_pos = "retail_finance_data.jobs.reconcile:main"
 build_gold_tables = "retail_finance_data.jobs.gold:main"
 quality_gate = "retail_finance_data.jobs.quality:main"
+train_models = "retail_finance_data.jobs.ml:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
