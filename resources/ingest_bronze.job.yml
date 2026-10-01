@@ -1,23 +1,15 @@
 resources:
-  experiments:
-    finance_ml:  # fraud detectors and revenue forecast on certified Gold (stories 5.1, 5.2)
-      name: /Workspace/Users/${workspace.current_user.userName}/finance-ml
-      permissions:
-        - service_principal_name: ${var.runner}
-          level: CAN_MANAGE
-
   jobs:
-    train_models:
-      name: "[finance] train and score models"
+    ingest_bronze:
+      name: "[finance] ingest bronze"
       description: >
-        Reads certified Gold only. Trains two unsupervised fraud detectors (cashier refunds,
-        store margin drift) and a revenue forecast that ships only if it beats a seasonal-naive
-        baseline. Tracks runs in MLflow, registers models in finance.ml, writes scores to Gold.
+        Loads new landing files into finance.bronze with Auto Loader, without generating
+        data. Used by the scheduled pipeline (story 6.1): a run with no new file adds nothing.
       max_concurrent_runs: 1
       timeout_seconds: 3600
       tags:
         CostCenter: finance-data-platform
-        Layer: ml
+        Layer: bronze
 
       job_clusters:
         - job_cluster_key: finance_jobs
@@ -36,11 +28,11 @@ resources:
               ResourceClass: SingleNode
 
       tasks:
-        - task_key: train_and_score
+        - task_key: ingest_bronze
           job_cluster_key: finance_jobs
           python_wheel_task:
             package_name: retail_finance_data
-            entry_point: train_models
-            parameters: ["--catalog", "${var.catalog}", "--experiment", "${resources.experiments.finance_ml.name}"]
+            entry_point: ingest_bronze
+            parameters: ["--catalog", "${var.catalog}"]
           libraries:
             - whl: ../dist/*.whl  # relative to this file, not the repo root

@@ -30,6 +30,15 @@ variables:
       It can read and write the finance schemas and nothing else. The bundle itself is
       deployed by finance-data-deployer (GitHub Actions credentials). Not a secret.
     default: 11af38fd-b618-4649-80db-40092db9713b
+  alert_email:
+    description: >
+      Where failure and slow-run emails go. Set from the ALERT_EMAIL GitHub secret
+      (BUNDLE_VAR_alert_email), so the address is not in this public repo.
+  schedule_pause_status:
+    description: >
+      PAUSED or UNPAUSED for the pipeline's daily schedule. Committed PAUSED: no daily
+      spend before the trial ends (story 6.1). Flip here and deploy, never in the UI.
+    default: PAUSED
 
 targets:
   prod:

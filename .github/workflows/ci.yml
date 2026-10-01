@@ -40,4 +40,5 @@ jobs:
         env:
           DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          BUNDLE_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
         run: databricks bundle validate -t prod

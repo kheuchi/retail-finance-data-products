@@ -1,0 +1,59 @@
+resources:
+  jobs:
+    finance_pipeline:
+      name: "[finance] pipeline: bronze → silver → gold → ml"
+      description: >
+        The whole chain as one scheduled job (story 6.1). Each step runs an existing job,
+        so cluster sizes and run history stay with that job. A failed step stops the rest:
+        ML never runs on a Gold build that did not pass its quality gates.
+        Schedule committed paused (owner decision); a manual unpause is config drift (story 6.2).
+      max_concurrent_runs: 1
+      timeout_seconds: 14400  # 4 h: the four steps' own timeouts are shorter
+      tags:
+        CostCenter: finance-data-platform
+        Layer: orchestration
+
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: Europe/Berlin
+        pause_status: ${var.schedule_pause_status}
+
+      email_notifications:
+        on_failure: ["${var.alert_email}"]
+        on_duration_warning_threshold_exceeded: ["${var.alert_email}"]
+      health:
+        rules:
+          - metric: RUN_DURATION_SECONDS
+            op: GREATER_THAN
+            value: 7200  # a full run takes about an hour; two is worth a look
+
+      tasks:
+        - task_key: bronze
+          run_job_task:
+            job_id: ${resources.jobs.ingest_bronze.id}
+          max_retries: 1
+          min_retry_interval_millis: 120000
+
+        - task_key: silver
+          depends_on:
+            - task_key: bronze
+          run_job_task:
+            job_id: ${resources.jobs.transform_silver.id}
+          max_retries: 1
+          min_retry_interval_millis: 120000
+
+        - task_key: gold
+          depends_on:
+            - task_key: silver
+          run_job_task:
+            job_id: ${resources.jobs.build_gold.id}
+          max_retries: 1
+          min_retry_interval_millis: 120000
+
+        - task_key: ml
+          depends_on:
+            - task_key: gold
+          run_job_task:
+            job_id: ${resources.jobs.train_models.id}
+          max_retries: 1
+          min_retry_interval_millis: 120000
