@@ -11,7 +11,8 @@ Honesty rules:
   baseline ships, and the scores say so.
 
 Order: compute everything, log to MLflow and register, then write the three Gold tables with
-the certified Gold run they came from. A failure before the writes leaves Gold untouched.
+the certified Gold run they came from, and append the input-drift checks to ``ops.model_drift``
+(story 6.2: warnings, never a failure). A failure before the writes leaves Gold untouched.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import argparse
 
 import numpy as np
 import pandas as pd
+
+from retail_finance_data import drift
 
 SEED = 20260929
 
@@ -296,6 +299,16 @@ def main() -> None:
     mlflow.set_experiment(a.experiment)
     gold = {t: spark.table(f"{c}.gold.{t}").toPandas() for t in GOLD_INPUTS}
     truth = read_answer_key(spark, c)
+    bv = gold["budget_variance"]
+    last_complete = pd.Period(sorted(bv.loc[bv["complete_month"], "month"].unique())[-1], "M")
+    checked = [str(last_complete - k) for k in range(5, -1, -1)]  # drift: the last 6 complete months
+
+    def input_drift(model_name, features, cols):
+        months = [m for m in checked if m in set(features["month"].astype(str))]
+        d = drift.feature_drift(features, cols, months).assign(model=model_name)
+        mlflow.log_metrics({f"psi_{x.feature}_{x.month}": x.psi for x in d.itertuples() if pd.notna(x.psi)})
+        return d
+
     print(f"certified Gold run {gold_run}; mlflow {mlflow.__version__}; answer key: {truth is not None}", flush=True)
 
     def log_model(model, x, name):
@@ -332,6 +345,7 @@ def main() -> None:
             )
             print("A1 cashier detector:", ev, flush=True)
         log_model(model, cf[CASHIER_FEATURES], "fraud_cashier_refunds")
+        drifts = [input_drift("fraud_cashier_refunds", cf, CASHIER_FEATURES)]
 
     # 5.1 store margin drift
     mf, dropped = margin_features(gold["margin"])
@@ -357,11 +371,10 @@ def main() -> None:
             )
             print("A2 margin detector (from its start month):", ev2, flush=True)
         log_model(model, mf[MARGIN_FEATURES], "fraud_store_margin")
+        drifts.append(input_drift("fraud_store_margin", mf, MARGIN_FEATURES))
 
     # 5.2 forecast
     panel = monthly_sales(gold["daily_revenue"])
-    bv = gold["budget_variance"]
-    last_complete = pd.Period(sorted(bv.loc[bv["complete_month"], "month"].unique())[-1], "M")
     bt = backtest(panel, last_complete)
     fc, fmodel = forecast(panel, last_complete, bt["winner"], bt["errors"][bt["winner"]])
     with mlflow.start_run(run_name="revenue_forecast"):
@@ -381,11 +394,26 @@ def main() -> None:
             x = training_rows(panel[panel["month"] <= last_complete], last_complete)[FORECAST_FEATURES]
             log_model(fmodel, x, "revenue_forecast")
         print("Forecast backtest:", {k: v for k, v in bt.items() if k != "errors"}, flush=True)
+        drifts.append(input_drift("revenue_forecast", drift.sales_growth(panel), ["yoy_growth"]))
+
+    # Drift is a warning (story 6.2): printed and kept as a history, never a reason to fail.
+    model_drift = pd.concat(drifts, ignore_index=True)
+    watch = model_drift[model_drift["status"].isin(["watch", "drift"])]
+    print(f"Input drift, last 6 complete months: {len(watch)} of {len(model_drift)} checks watch/drift", flush=True)
+    if len(watch):
+        print(watch.to_string(index=False), flush=True)
 
     # Writes last, all from the same certified Gold run.
     for name, df in (("fraud_scores", scores), ("margin_alerts", alerts), ("revenue_forecast", fc)):
         out = spark.createDataFrame(df.assign(gold_run=gold_run)).withColumn("scored_at", F.current_timestamp())
         out.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{c}.gold.{name}")
+    (
+        spark.createDataFrame(model_drift.assign(gold_run=gold_run))
+        .withColumn("psi", F.when(F.isnan("psi"), None).otherwise(F.col("psi")))
+        .withColumn("scored_at", F.current_timestamp())
+        .write.mode("append")  # a history: one set of rows per run
+        .saveAsTable(f"{c}.ops.model_drift")
+    )
     print(fc.groupby("month")[["forecast_eur", "low_80_eur", "high_80_eur"]].sum().round(0).to_string(), flush=True)
 
 
