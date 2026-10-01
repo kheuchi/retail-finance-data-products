@@ -11,6 +11,8 @@ resources:
         written only if they add up to Silver and analysts cannot read below Gold. The last
         gate checks Gold and writes lineage evidence (Gold -> Silver -> Bronze -> file).
       max_concurrent_runs: 1
+      queue:
+        enabled: true  # a run that finds the job busy waits instead of being skipped
       timeout_seconds: 3600
       tags:
         CostCenter: finance-data-platform

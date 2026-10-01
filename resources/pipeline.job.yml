@@ -1,0 +1,56 @@
+resources:
+  jobs:
+    finance_pipeline:
+      name: "[finance] pipeline: bronze → silver → gold → ml"
+      description: >
+        The whole chain as one scheduled job (story 6.1). Each step runs an existing job,
+        so cluster sizes and run history stay with that job. A failed step stops the rest:
+        ML never runs on a Gold build that did not pass its quality gates.
+        No blind retries: a failed step alerts, and "repair run" reruns only that step.
+        Schedule committed paused (owner decision); a manual unpause is config drift (story 6.2).
+      max_concurrent_runs: 1
+      queue:
+        enabled: true  # a run that finds the job busy waits instead of being skipped
+      timeout_seconds: 18000  # 5 h: above the four steps' own timeouts added up (4.5 h)
+      tags:
+        CostCenter: finance-data-platform
+        Layer: orchestration
+
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: Europe/Berlin
+        pause_status: ${var.schedule_pause_status}
+
+      email_notifications:
+        on_failure: ["${var.alert_email}"]
+        on_duration_warning_threshold_exceeded: ["${var.alert_email}"]
+      notification_settings:
+        no_alert_for_canceled_runs: false  # a cancelled run is worth an email too
+      health:
+        rules:
+          - metric: RUN_DURATION_SECONDS
+            op: GREATER_THAN
+            value: 7200  # a full run takes about an hour; two is worth a look
+
+      tasks:
+        - task_key: bronze
+          run_job_task:
+            job_id: ${resources.jobs.ingest_bronze.id}
+
+        - task_key: silver
+          depends_on:
+            - task_key: bronze
+          run_job_task:
+            job_id: ${resources.jobs.transform_silver.id}
+
+        - task_key: gold
+          depends_on:
+            - task_key: silver
+          run_job_task:
+            job_id: ${resources.jobs.build_gold.id}
+
+        - task_key: ml
+          depends_on:
+            - task_key: gold
+          run_job_task:
+            job_id: ${resources.jobs.train_models.id}

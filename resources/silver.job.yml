@@ -7,6 +7,8 @@ resources:
         key, EUR amounts at the ECB rate of the day. Rows that break a rule go to
         finance.silver.quarantine with the reasons. Fails if any Bronze row is unaccounted for.
       max_concurrent_runs: 1
+      queue:
+        enabled: true  # a run that finds the job busy waits instead of being skipped
       timeout_seconds: 5400
       tags:
         CostCenter: finance-data-platform

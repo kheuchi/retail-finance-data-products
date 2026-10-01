@@ -12,7 +12,7 @@ on:
         required: true
         type: choice
         default: none
-        options: [none, generate_and_ingest, transform_silver, build_gold, train_models]
+        options: [none, generate_and_ingest, ingest_bronze, transform_silver, build_gold, train_models, finance_pipeline]
 
 concurrency:
   group: deploy-databricks-data
@@ -26,10 +26,11 @@ jobs:
     name: Deploy bundle
     if: github.ref == 'refs/heads/main' && inputs.confirmation == 'deploy'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180  # a full pipeline run takes about an hour
     env:
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
       DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      BUNDLE_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -38,10 +39,15 @@ jobs:
       - name: Install wheel builder
         run: python -m pip install --disable-pip-version-check build
       - uses: databricks/setup-cli@6a2e75f1f954d87503702c408deea63216c0799d # v1.18.0
+      - name: Alert address is set
+        run: test -n "$BUNDLE_VAR_alert_email" || { echo "ALERT_EMAIL secret is missing or empty"; exit 1; }
       - name: Deploy
         run: databricks bundle deploy -t prod
       - name: Run job
         if: inputs.run_job != 'none'
         env:
           JOB: ${{ inputs.run_job }}
-        run: databricks bundle run -t prod "$JOB"
+        # The pipeline can outlast this workflow (up to 5 h): start it and return.
+        run: |
+          if [ "$JOB" = finance_pipeline ]; then databricks bundle run -t prod --no-wait "$JOB"
+          else databricks bundle run -t prod "$JOB"; fi

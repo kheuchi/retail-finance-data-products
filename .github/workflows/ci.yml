@@ -40,4 +40,7 @@ jobs:
         env:
           DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
-        run: databricks bundle validate -t prod
+          BUNDLE_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+        run: |
+          test -n "$BUNDLE_VAR_alert_email" || { echo "ALERT_EMAIL secret is missing or empty"; exit 1; }
+          databricks bundle validate -t prod

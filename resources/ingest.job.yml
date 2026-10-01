@@ -4,8 +4,10 @@ resources:
       name: "[finance] generate raw data + ingest bronze"
       description: >
         Writes the synthetic ERP/POS extracts to finance.raw.landing, then loads them
-        into finance.bronze with Auto Loader. Idempotent: re-runs add nothing new.
+        into finance.bronze by running the ingest_bronze job. Idempotent: re-runs add nothing new.
       max_concurrent_runs: 1
+      queue:
+        enabled: true  # a run that finds the job busy waits instead of being skipped
       timeout_seconds: 5400
       tags:
         CostCenter: finance-data-platform
@@ -37,13 +39,10 @@ resources:
           libraries:
             - whl: ../dist/*.whl  # relative to this file, not the repo root
 
+        # Bronze is loaded by the ingest_bronze job, the only owner of the Auto Loader
+        # checkpoint: two streams on one checkpoint would collide (story 6.1 review).
         - task_key: ingest_bronze
           depends_on:
             - task_key: generate
-          job_cluster_key: finance_jobs
-          python_wheel_task:
-            package_name: retail_finance_data
-            entry_point: ingest_bronze
-            parameters: ["--catalog", "${var.catalog}"]
-          libraries:
-            - whl: ../dist/*.whl  # relative to this file, not the repo root
+          run_job_task:
+            job_id: ${resources.jobs.ingest_bronze.id}
