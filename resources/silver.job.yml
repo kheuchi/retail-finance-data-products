@@ -10,6 +10,11 @@ resources:
       queue:
         enabled: true  # a run that finds the job busy waits instead of being skipped
       timeout_seconds: 5400
+      # The pipeline (story 6.1) runs as the runner and starts this job: the runner needs
+      # CAN_MANAGE_RUN here. It can only start and cancel runs that already run as itself.
+      permissions:
+        - service_principal_name: ${var.runner}
+          level: CAN_MANAGE_RUN
       tags:
         CostCenter: finance-data-platform
         Layer: silver
