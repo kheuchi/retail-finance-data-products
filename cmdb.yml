@@ -99,6 +99,9 @@ pipeline:
     alerts: "email on failure and on runs over 2 h, to var.alert_email (GitHub secret ALERT_EMAIL -> BUNDLE_VAR_alert_email; not in Git)"
     schedule: "daily 06:00 Europe/Berlin; pause_status = var.schedule_pause_status, default PAUSED (owner decision 2026-10-01)"
     story: "control plane docs/stories/6.1-scheduled-pipeline.md"
+  config_drift:
+    workflow: ".github/workflows/drift.yml: nightly 03:30 UTC + on demand; databricks bundle plan -o json as the deployer; retail_finance_data.config_drift fails on any create/update/delete"
+    story: "control plane docs/stories/6.2-drift-checks.md"
   compute: "finance-jobs cluster policy (job clusters: small, spot, single node default; stop when the job ends)"
 
 # ──────────── ml ────────────
@@ -112,6 +115,7 @@ ml:
   outputs: "gold.fraud_scores, gold.margin_alerts, gold.revenue_forecast carry gold_run and scored_at; written after MLflow logging and registration, so a failure leaves Gold untouched"
   review_2026_09_29: "independent review before merge: starved forecast training, missing signature for UC registration, false alarms not per month, answer-key dependency, partial writes, self-absorbing margin baseline, unstable ranks: all fixed; employee-level fraud scores readable by analysts: accepted risk R-12 (control plane)"
   probe_2026_09_29: "full data locally after review fixes: A1 rank 1 Aug and Sep (false alarms 3, 2); A2 rank 1 Jul, Aug, Sep (false alarms 0, 1, 0); forecast baseline MAPE 7.5% beats model 10.3%"
+  drift: "PSI per model input, each of the last 6 complete months vs its months 4-12 back; ~10 rows per bin (2-10 bins: 40 stores in 10 bins read ~0.2 on identical data); forecast checked on YoY growth, not raw sales (seasonality); stable < 0.1 <= watch < 0.2 <= drift; ops.model_drift (append, gold_run, scored_at) + MLflow psi_<feature>_<month>; warning only (story 6.2)"
   story: "control plane docs/stories/5.1-fraud-detection.md, 5.2-revenue-forecast.md"
 
 # ──────────── tests ────────────
