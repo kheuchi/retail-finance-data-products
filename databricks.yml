@@ -38,7 +38,7 @@ variables:
     description: >
       PAUSED or UNPAUSED for the pipeline's daily schedule. Committed PAUSED: no daily
       spend before the trial ends (story 6.1). Flip here and deploy, never in the UI.
-    default: PAUSED
+    default: UNPAUSED  # temporary: one scheduled run as proof (story 6.1), re-paused after 2026-10-02 06:00
 
 targets:
   prod:
