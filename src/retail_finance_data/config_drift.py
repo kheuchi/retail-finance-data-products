@@ -18,9 +18,10 @@ def pending(plan: dict) -> list[tuple[str, str]]:
     """(resource, action) for every resource the next deploy would change."""
     if not isinstance(plan.get("plan"), dict):
         raise ValueError(f"unexpected plan format: top-level keys {sorted(plan)}")
-    return sorted(
-        (key, item.get("action", "")) for key, item in plan["plan"].items() if item.get("action", "") not in UNCHANGED
-    )
+    actions = {key: str(item.get("action", "")).lower() for key, item in plan["plan"].items()}
+    counts = {a or "(none)": sum(1 for x in actions.values() if x == a) for a in sorted(set(actions.values()))}
+    print("Plan actions:", counts)
+    return sorted((key, action) for key, action in actions.items() if action not in UNCHANGED)
 
 
 def main() -> int:

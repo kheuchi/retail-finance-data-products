@@ -304,10 +304,14 @@ def main() -> None:
     checked = [str(last_complete - k) for k in range(5, -1, -1)]  # drift: the last 6 complete months
 
     def input_drift(model_name, features, cols):
-        months = [m for m in checked if m in set(features["month"].astype(str))]
-        d = drift.feature_drift(features, cols, months).assign(model=model_name)
-        mlflow.log_metrics({f"psi_{x.feature}_{x.month}": x.psi for x in d.itertuples() if pd.notna(x.psi)})
-        return d
+        try:  # a warning, never a failure (story 6.2)
+            months = [m for m in checked if m in set(features["month"].astype(str))]
+            d = drift.feature_drift(features, cols, months).assign(model=model_name)
+            mlflow.log_metrics({f"psi_{x.feature}_{x.month}": x.psi for x in d.itertuples() if pd.notna(x.psi)})
+            return d
+        except Exception as e:  # noqa: BLE001
+            print(f"WARNING: input drift for {model_name} not computed: {e!r}", flush=True)
+            return pd.DataFrame()
 
     print(f"certified Gold run {gold_run}; mlflow {mlflow.__version__}; answer key: {truth is not None}", flush=True)
 
@@ -394,26 +398,38 @@ def main() -> None:
             x = training_rows(panel[panel["month"] <= last_complete], last_complete)[FORECAST_FEATURES]
             log_model(fmodel, x, "revenue_forecast")
         print("Forecast backtest:", {k: v for k, v in bt.items() if k != "errors"}, flush=True)
-        drifts.append(input_drift("revenue_forecast", drift.sales_growth(panel), ["yoy_growth"]))
+        try:
+            growth = drift.sales_growth(panel)
+        except Exception as e:  # noqa: BLE001
+            print(f"WARNING: sales growth for drift not computed: {e!r}", flush=True)
+            growth = None
+        if growth is not None:
+            drifts.append(input_drift("revenue_forecast", growth, ["yoy_growth"]))
 
     # Drift is a warning (story 6.2): printed and kept as a history, never a reason to fail.
-    model_drift = pd.concat(drifts, ignore_index=True)
-    watch = model_drift[model_drift["status"].isin(["watch", "drift"])]
-    print(f"Input drift, last 6 complete months: {len(watch)} of {len(model_drift)} checks watch/drift", flush=True)
-    if len(watch):
-        print(watch.to_string(index=False), flush=True)
+    computed = [d for d in drifts if len(d)]
+    model_drift = pd.concat(computed, ignore_index=True) if computed else None
+    if model_drift is not None:
+        watch = model_drift[model_drift["status"].isin(["watch", "drift"])]
+        print(f"Input drift, last 6 complete months: {len(watch)} of {len(model_drift)} checks watch/drift", flush=True)
+        if len(watch):
+            print(watch.to_string(index=False), flush=True)
 
     # Writes last, all from the same certified Gold run.
     for name, df in (("fraud_scores", scores), ("margin_alerts", alerts), ("revenue_forecast", fc)):
         out = spark.createDataFrame(df.assign(gold_run=gold_run)).withColumn("scored_at", F.current_timestamp())
         out.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{c}.gold.{name}")
-    (
-        spark.createDataFrame(model_drift.assign(gold_run=gold_run))
-        .withColumn("psi", F.when(F.isnan("psi"), None).otherwise(F.col("psi")))
-        .withColumn("scored_at", F.current_timestamp())
-        .write.mode("append")  # a history: one set of rows per run
-        .saveAsTable(f"{c}.ops.model_drift")
-    )
+    if model_drift is not None:
+        try:  # after the Gold writes: a failure here must not fail a job whose scores are written
+            (
+                spark.createDataFrame(model_drift.assign(gold_run=gold_run))
+                .withColumn("psi", F.when(F.isnan("psi"), None).otherwise(F.col("psi")))
+                .withColumn("scored_at", F.current_timestamp())
+                .write.mode("append")  # a history; a rerun adds rows: read the latest scored_at per gold_run
+                .saveAsTable(f"{c}.ops.model_drift")
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"WARNING: ops.model_drift not written: {e!r}", flush=True)
     print(fc.groupby("month")[["forecast_eur", "low_80_eur", "high_80_eur"]].sum().round(0).to_string(), flush=True)
 
 

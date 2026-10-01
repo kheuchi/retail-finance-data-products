@@ -11,7 +11,7 @@ def test_unchanged_plan_has_no_drift():
 
 
 def test_changed_resources_are_listed():
-    plan = {"plan": {"resources.jobs.a": {"action": "update"}, "resources.jobs.b": {"action": "skip"}}}
+    plan = {"plan": {"resources.jobs.a": {"action": "update"}, "resources.jobs.b": {"action": "Skip"}}}
     assert config_drift.pending(plan) == [("resources.jobs.a", "update")]
 
 

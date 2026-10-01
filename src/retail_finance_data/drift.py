@@ -33,16 +33,19 @@ def psi(reference, current, bins: int | None = None) -> float:
         same = float(np.isclose(cur, ref[0]).mean())
         r, c = np.array([1.0, 0.0]), np.array([same, 1.0 - same])
     else:
-        inner = edges[1:-1]
-        r = np.bincount(np.searchsorted(inner, ref, side="right"), minlength=len(inner) + 1) / len(ref)
-        c = np.bincount(np.searchsorted(inner, cur, side="right"), minlength=len(inner) + 1) / len(cur)
+        # The reference minimum is kept as an edge, so a value tied with it gets its own bin:
+        # on a mostly-zero feature (no-receipt refunds) all quantiles are 0, and without that
+        # bin every value would land in one bin and PSI would read 0 whatever happens.
+        inner = edges[:-1]
+        r = np.bincount(np.searchsorted(inner, ref, side="left"), minlength=len(inner) + 1) / len(ref)
+        c = np.bincount(np.searchsorted(inner, cur, side="left"), minlength=len(inner) + 1) / len(cur)
     r, c = np.clip(r, EPS, None), np.clip(c, EPS, None)
     return float(np.sum((c - r) * np.log(c / r)))
 
 
 def status(value: float) -> str:
     if np.isnan(value):
-        return "no reference"
+        return "no data"
     return "stable" if value < 0.1 else "watch" if value < 0.2 else "drift"
 
 
@@ -50,22 +53,25 @@ def feature_drift(features: pd.DataFrame, cols: list[str], months: list[str]) ->
     """PSI of each feature for each month in ``months``, against that month's own reference
     window (months ``GAP``..``GAP + WINDOW - 1`` earlier, the same gap as the margin baseline)."""
     f = features.assign(month=features["month"].astype(str))
-    known = sorted(f["month"].unique())
+    known = set(f["month"])
     rows = []
     for m in months:
-        i = known.index(m)
-        ref_months = known[max(0, i - GAP - WINDOW + 1) : max(0, i - GAP + 1)]
+        window = [str(pd.Period(m, "M") - k) for k in range(GAP + WINDOW - 1, GAP - 1, -1)]  # calendar months
+        ref_months = [w for w in window if w in known]
         ref = f[f["month"].isin(ref_months)]
         cur = f[f["month"] == m]
+        enough = len(ref_months) >= MIN_REF_MONTHS
         for col in cols:
-            value = psi(ref[col], cur[col]) if len(ref_months) >= MIN_REF_MONTHS else float("nan")
+            value = psi(ref[col], cur[col]) if enough else float("nan")
             rows.append(
                 {
                     "month": m,
                     "feature": col,
-                    "psi": round(value, 4),  # NaN when there is no reference window
-                    "status": status(value),
-                    "reference": f"{ref_months[0]}..{ref_months[-1]}" if ref_months else "",
+                    "psi": round(value, 4),  # NaN: no reference window, or no data
+                    "status": status(value) if enough else "no reference",
+                    "reference": f"{ref_months[0]}..{ref_months[-1]} ({len(ref_months)} months)"
+                    if ref_months
+                    else None,
                 }
             )
     return pd.DataFrame(rows)
