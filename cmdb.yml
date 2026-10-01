@@ -95,7 +95,7 @@ pipeline:
   orchestration:
     job: "finance_pipeline (resources/pipeline.job.yml): run_job tasks ingest_bronze -> transform_silver -> build_gold -> train_models; a failed step stops the rest"
     ingest: "ingest_bronze (resources/ingest_bronze.job.yml): Auto Loader only, no generation; adds nothing when no new file landed"
-    retries: "max_retries 1 per step, 2 min apart; overall timeout 4 h"
+    failures: "no automatic retries (a retry reruns a whole child job); email, then repair run; queueing on all jobs; overall timeout 5 h; ML refuses Gold rewritten after its certification"
     alerts: "email on failure and on runs over 2 h, to var.alert_email (GitHub secret ALERT_EMAIL -> BUNDLE_VAR_alert_email; not in Git)"
     schedule: "daily 06:00 Europe/Berlin; pause_status = var.schedule_pause_status, default PAUSED (owner decision 2026-10-01)"
     story: "control plane docs/stories/6.1-scheduled-pipeline.md"

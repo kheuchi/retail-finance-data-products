@@ -238,12 +238,27 @@ def forecast(panel: pd.DataFrame, last_complete: pd.Period, winner: str, errors:
 # ---------------------------------------------------------------- job
 
 
+GOLD_INPUTS = ("refunds", "margin", "daily_revenue", "budget_variance")
+
+
+def rewritten_after(last_writes: dict, certified_at) -> list[str]:
+    """Gold inputs written after the certification: a later Gold build, not yet certified, has
+    started rewriting them, so the data on disk is no longer the data that was certified."""
+    return sorted(t for t, ts in last_writes.items() if ts > certified_at)
+
+
 def require_certified(spark, catalog: str) -> str:
     from pyspark.sql import functions as F
 
     last = spark.table(f"{catalog}.ops.gold_certification").orderBy(F.desc("certified_at")).first()
     if last is None or not last["certified"]:
         raise RuntimeError(f"Latest Gold build is not certified ({last}): models run on certified Gold only.")
+    writes = {t: spark.sql(f"DESCRIBE HISTORY {catalog}.gold.{t} LIMIT 1").first()["timestamp"] for t in GOLD_INPUTS}
+    late = rewritten_after(writes, last["certified_at"])
+    if late:
+        raise RuntimeError(
+            f"Gold {late} rewritten after certification of run {last['run_id']}: wait for the next certified build."
+        )
     return last["run_id"]
 
 
@@ -279,9 +294,7 @@ def main() -> None:
     gold_run = require_certified(spark, c)
     mlflow.set_registry_uri("databricks-uc")
     mlflow.set_experiment(a.experiment)
-    gold = {
-        t: spark.table(f"{c}.gold.{t}").toPandas() for t in ("refunds", "margin", "daily_revenue", "budget_variance")
-    }
+    gold = {t: spark.table(f"{c}.gold.{t}").toPandas() for t in GOLD_INPUTS}
     truth = read_answer_key(spark, c)
     print(f"certified Gold run {gold_run}; mlflow {mlflow.__version__}; answer key: {truth is not None}", flush=True)
 

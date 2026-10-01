@@ -14,6 +14,8 @@ resources:
         store margin drift) and a revenue forecast that ships only if it beats a seasonal-naive
         baseline. Tracks runs in MLflow, registers models in finance.ml, writes scores to Gold.
       max_concurrent_runs: 1
+      queue:
+        enabled: true  # a run that finds the job busy waits instead of being skipped
       timeout_seconds: 3600
       tags:
         CostCenter: finance-data-platform

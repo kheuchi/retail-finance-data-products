@@ -127,3 +127,12 @@ def test_ranks_are_stable_across_reruns():
         ml.ranked(cf, *ml.isolation_scores(cf, ml.CASHIER_FEATURES)[1:], ["store_id", "cashier_id"]) for _ in range(2)
     ]
     pd.testing.assert_frame_equal(runs[0], runs[1])
+
+
+def test_ml_refuses_gold_rewritten_after_certification():
+    from datetime import datetime
+
+    certified = datetime(2026, 10, 1, 7, 0)
+    writes = {"refunds": datetime(2026, 10, 1, 6, 50), "margin": datetime(2026, 10, 1, 7, 5)}
+    assert ml.rewritten_after(writes, certified) == ["margin"]
+    assert ml.rewritten_after({"refunds": datetime(2026, 10, 1, 6, 50)}, certified) == []

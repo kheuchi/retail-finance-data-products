@@ -6,6 +6,8 @@ resources:
         Loads new landing files into finance.bronze with Auto Loader, without generating
         data. Used by the scheduled pipeline (story 6.1): a run with no new file adds nothing.
       max_concurrent_runs: 1
+      queue:
+        enabled: true  # a run that finds the job busy waits instead of being skipped
       timeout_seconds: 3600
       tags:
         CostCenter: finance-data-platform
