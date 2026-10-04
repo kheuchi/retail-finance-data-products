@@ -1,0 +1,38 @@
+name: Run month-end agents
+
+# Invokes the agents on AgentCore Runtime for a close month (story 7.1). The agents draft,
+# record and (for approved drafts) send; nothing is sent without a controller's approval.
+on:
+  workflow_dispatch:
+    inputs:
+      month:
+        description: Close month (YYYY-MM)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  run:
+    name: Invoke runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+        with:
+          role-to-assume: ${{ vars.AWS_AGENT_CI_ROLE_ARN }}
+          role-session-name: github-agent-run
+          aws-region: eu-central-1
+      - name: Invoke
+        env:
+          ARN: ${{ vars.AGENT_RUNTIME_ARN }}
+          MONTH: ${{ inputs.month }}
+        run: |
+          [[ "$MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]] || { echo "month must be YYYY-MM"; exit 1; }
+          session="close-${MONTH}-$(date +%s)-${GITHUB_RUN_ID}-padpadpadpad"
+          payload=$(printf '{"month":"%s"}' "$MONTH" | base64 -w0)
+          aws bedrock-agentcore invoke-agent-runtime --agent-runtime-arn "$ARN" \
+            --runtime-session-id "$session" --payload "$payload" --cli-read-timeout 900 result.json >/dev/null
+          python3 -c "import json; r=json.load(open('result.json')); print(json.dumps({k: r[k] for k in r if k != 'final'}, indent=1)); print(r.get('final',''))" | tee -a "$GITHUB_STEP_SUMMARY"

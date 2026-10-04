@@ -1,0 +1,3 @@
+# One line ending for every text file, whatever the client (Windows Git or WSL Git).
+* text=auto eol=lf
+*.png binary

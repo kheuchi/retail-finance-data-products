@@ -12,7 +12,7 @@ on:
         required: true
         type: choice
         default: none
-        options: [none, generate_and_ingest, ingest_bronze, transform_silver, build_gold, train_models, finance_pipeline]
+        options: [none, generate_and_ingest, ingest_bronze, transform_silver, build_gold, train_models, finance_pipeline, agent_tools]
 
 concurrency:
   group: deploy-databricks-data
