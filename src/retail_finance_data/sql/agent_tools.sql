@@ -87,11 +87,12 @@ RETURN
   ORDER BY abs(amount_eur) DESC
 ;;
 CREATE OR REPLACE FUNCTION {catalog}.agent.revenue_outlook(m STRING COMMENT 'Close month, YYYY-MM; the outlook covers the months after it')
-RETURNS TABLE (month STRING, forecast_eur DECIMAL(18,2), low_80_eur DECIMAL(18,2), high_80_eur DECIMAL(18,2), method STRING)
-COMMENT 'Chain revenue forecast (latest model run) for the months after the close month, with the 80% range, and the method that won the backtest.'
+RETURNS TABLE (
+  month STRING, forecast_eur DECIMAL(18,2), low_80_eur DECIMAL(18,2), high_80_eur DECIMAL(18,2), range_pct INT, method STRING)
+COMMENT 'Chain revenue forecast (latest model run) for the months after the close month, with its range (range_pct = 80: an 80% range), and the method that won the backtest.'
 RETURN
   SELECT month, CAST(sum(forecast_eur) AS DECIMAL(18,2)), CAST(sum(low_80_eur) AS DECIMAL(18,2)),
-    CAST(sum(high_80_eur) AS DECIMAL(18,2)), max(method)
+    CAST(sum(high_80_eur) AS DECIMAL(18,2)), 80, max(method)
   FROM {catalog}.gold.revenue_forecast
   WHERE month > m
   GROUP BY month ORDER BY month
