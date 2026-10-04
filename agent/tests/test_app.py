@@ -28,3 +28,20 @@ def test_rules_reach_every_sub_agent_and_no_one_can_approve():
 def test_no_tool_exposes_cashiers():
     wanted = {t for _d, _p, tools in main.SUBAGENTS.values() for t in tools}
     assert not any("cashier" in t and t != "cashier_case_count" for t in wanted)
+
+
+def test_capped_tool_refuses_after_its_limit():
+    import asyncio
+
+    from langchain_core.tools import StructuredTool
+
+    async def echo(text: str) -> str:
+        return text
+
+    tool = main.capped(StructuredTool.from_function(coroutine=echo, name="submit_draft", description="d"), 2)
+    results = asyncio.run(_call_three(tool))
+    assert results[:2] == ["a", "a"] and results[2].startswith("refused")
+
+
+async def _call_three(tool):
+    return [await tool.ainvoke({"text": "a"}) for _ in range(3)]

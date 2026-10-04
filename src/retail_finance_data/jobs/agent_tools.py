@@ -17,7 +17,10 @@ SEPARATOR = "\n;;\n"
 def statements(catalog: str) -> list[str]:
     text = files("retail_finance_data").joinpath("sql/agent_tools.sql").read_text(encoding="utf-8")
     body = "\n".join(line for line in text.splitlines() if not line.startswith("--"))
-    return [s.strip().replace("{catalog}", catalog) for s in body.split(SEPARATOR) if s.strip()]
+    out = [s.strip().replace("{catalog}", catalog) for s in body.split(SEPARATOR) if s.strip()]
+    if not all(s.count("CREATE OR REPLACE FUNCTION") == 1 for s in out):
+        raise ValueError("each statement must hold exactly one CREATE OR REPLACE FUNCTION (check the ';;' lines)")
+    return out
 
 
 def main() -> None:

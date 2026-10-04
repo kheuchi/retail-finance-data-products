@@ -44,4 +44,5 @@ def test_no_cashier_identity_and_no_journal_text_reach_the_agent():
     for s in SQL:
         returns = s.split("RETURNS TABLE", 1)[1].split("COMMENT", 1)[0]
         assert "cashier_id" not in returns and "description" not in returns
-    assert "cashier_id" not in body(SQL[-1])
+    for s in SQL:
+        assert "cashier_id" not in body(s)

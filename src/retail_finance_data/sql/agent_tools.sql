@@ -9,27 +9,32 @@ CREATE OR REPLACE FUNCTION {catalog}.agent.close_overview(m STRING COMMENT 'Clos
 RETURNS TABLE (
   month STRING, net_sales_eur DECIMAL(18,2), budget_to_date_eur DECIMAL(18,2), variance_eur DECIMAL(18,2),
   variance_pct DECIMAL(9,2), prior_year_net_sales_eur DECIMAL(18,2), yoy_growth_pct DECIMAL(9,2),
-  gross_margin_pct DECIMAL(9,2), discount_rate_pct DECIMAL(9,2), complete_month BOOLEAN)
-COMMENT 'Chain totals for a close month: net sales (EUR, excl. VAT) vs budget to date, growth vs the same month last year, gross margin and discount rate. Percentages are already computed.'
+  gross_margin_pct DECIMAL(9,2), discount_rate_pct DECIMAL(9,2), complete_month BOOLEAN, days_with_sales INT)
+COMMENT 'Chain totals for a close month: net sales (EUR, excl. VAT) vs budget to date (stores with a budget), growth vs the same days of the same month last year, gross margin and discount rate. Percentages are already computed. complete_month = false means the month is still in progress.'
 RETURN
   WITH bv AS (
-    SELECT sum(actual_net_sales_eur) AS actual, sum(budget_to_date_eur) AS budget, bool_and(complete_month) AS complete
+    SELECT sum(actual_net_sales_eur) AS total, sum(actual_net_sales_eur) FILTER (WHERE has_budget) AS actual,
+      sum(budget_to_date_eur) FILTER (WHERE has_budget) AS budget, bool_and(complete_month) AS complete
     FROM {catalog}.gold.budget_variance WHERE month = m),
+  cur AS (
+    SELECT max(day(business_date)) AS last_day, count(DISTINCT business_date) AS days FROM {catalog}.gold.daily_revenue
+    WHERE date_format(business_date, 'yyyy-MM') = m),
   py AS (
     SELECT sum(net_sales_eur) AS prior FROM {catalog}.gold.daily_revenue
-    WHERE date_format(business_date, 'yyyy-MM') = date_format(add_months(to_date(concat(m, '-01')), -12), 'yyyy-MM')),
+    WHERE date_format(business_date, 'yyyy-MM') = date_format(add_months(to_date(concat(m, '-01')), -12), 'yyyy-MM')
+      AND day(business_date) <= (SELECT last_day FROM cur)),
   mg AS (
     SELECT sum(net_sales_eur) AS net, sum(cogs_eur) AS cogs, sum(discount_eur) AS disc, sum(paid_incl_vat_eur) AS paid
     FROM {catalog}.gold.margin WHERE month = m)
   SELECT m,
-    CAST(bv.actual AS DECIMAL(18,2)), CAST(bv.budget AS DECIMAL(18,2)), CAST(bv.actual - bv.budget AS DECIMAL(18,2)),
+    CAST(bv.total AS DECIMAL(18,2)), CAST(bv.budget AS DECIMAL(18,2)), CAST(bv.actual - bv.budget AS DECIMAL(18,2)),
     CAST(round(100 * try_divide(bv.actual - bv.budget, bv.budget), 2) AS DECIMAL(9,2)),
     CAST(py.prior AS DECIMAL(18,2)),
-    CAST(round(100 * try_divide(bv.actual - py.prior, py.prior), 2) AS DECIMAL(9,2)),
+    CAST(round(100 * try_divide(bv.total - py.prior, py.prior), 2) AS DECIMAL(9,2)),
     CAST(round(100 * (1 - try_divide(mg.cogs, mg.net)), 2) AS DECIMAL(9,2)),
     CAST(round(100 * try_divide(mg.disc, mg.paid + mg.disc), 2) AS DECIMAL(9,2)),
-    bv.complete
-  FROM bv CROSS JOIN py CROSS JOIN mg
+    bv.complete, CAST(cur.days AS INT)
+  FROM bv CROSS JOIN cur CROSS JOIN py CROSS JOIN mg
 ;;
 CREATE OR REPLACE FUNCTION {catalog}.agent.store_variances(m STRING COMMENT 'Close month, YYYY-MM')
 RETURNS TABLE (
@@ -75,14 +80,15 @@ RETURNS TABLE (
   day_pos_net_eur DECIMAL(18,2), day_gl_revenue_eur DECIMAL(18,2))
 COMMENT 'Revenue journals the GL vs POS reconciliation could not match to till sales in a month. Journal descriptions are deliberately not returned.'
 RETURN
-  SELECT store_id, business_date, journal_id, amount_eur, reason, day_pos_net_eur, day_gl_revenue_eur
+  SELECT store_id, business_date, journal_id, CAST(amount_eur AS DECIMAL(18,2)), reason,
+    CAST(day_pos_net_eur AS DECIMAL(18,2)), CAST(day_gl_revenue_eur AS DECIMAL(18,2))
   FROM {catalog}.gold.recon_exceptions
   WHERE date_format(business_date, 'yyyy-MM') = m
-  ORDER BY amount_eur DESC
+  ORDER BY abs(amount_eur) DESC
 ;;
 CREATE OR REPLACE FUNCTION {catalog}.agent.revenue_outlook(m STRING COMMENT 'Close month, YYYY-MM; the outlook covers the months after it')
 RETURNS TABLE (month STRING, forecast_eur DECIMAL(18,2), low_80_eur DECIMAL(18,2), high_80_eur DECIMAL(18,2), method STRING)
-COMMENT 'Chain revenue forecast for the months after the close month, with the 80% range, and the method that won the backtest.'
+COMMENT 'Chain revenue forecast (latest model run) for the months after the close month, with the 80% range, and the method that won the backtest.'
 RETURN
   SELECT month, CAST(sum(forecast_eur) AS DECIMAL(18,2)), CAST(sum(low_80_eur) AS DECIMAL(18,2)),
     CAST(sum(high_80_eur) AS DECIMAL(18,2)), max(method)
@@ -94,4 +100,4 @@ CREATE OR REPLACE FUNCTION {catalog}.agent.cashier_case_count(m STRING COMMENT '
 RETURNS TABLE (month STRING, cashier_cases_referred BIGINT, cashier_months_scored BIGINT)
 COMMENT 'How many cashier-months the refund detector flagged for internal audit. A count only: no cashier or store is identified (R-12).'
 RETURN
-  SELECT m, count_if(flagged), count(*) FROM {catalog}.gold.fraud_scores WHERE month = m
+  SELECT any_value(m), count_if(flagged), count(*) FROM {catalog}.gold.fraud_scores WHERE month = m
