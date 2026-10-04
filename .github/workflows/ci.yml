@@ -29,6 +29,25 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
+  agent:
+    name: Agent tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Install pinned dependencies
+        run: python -m pip install --disable-pip-version-check --no-deps -r requirements.txt pytest ruff
+      - name: Lint
+        run: ruff check app tests --line-length 120 && ruff format --check app tests --line-length 120
+      - name: Test
+        run: python -m pytest -q tests
+
   bundle:
     name: Validate bundle
     runs-on: ubuntu-latest

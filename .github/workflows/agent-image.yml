@@ -1,0 +1,36 @@
+name: Agent image
+
+# Builds the month-end agents' container (story 7.1) for AgentCore Runtime (ARM64) and pushes
+# it to ECR as the data repo's CI role (OIDC, no stored keys). The tag is the commit SHA; the
+# infra repo's deploy-agent workflow points the runtime at it.
+on:
+  push:
+    branches: [main]
+    paths: ["agent/**", ".github/workflows/agent-image.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  image:
+    name: Build and push
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+        with:
+          role-to-assume: ${{ vars.AWS_AGENT_CI_ROLE_ARN }}
+          role-session-name: github-agent-image
+          aws-region: eu-central-1
+      - name: Build and push to ECR
+        run: |
+          registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-central-1.amazonaws.com"
+          aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin "$registry" >/dev/null
+          tag="${GITHUB_SHA::12}"
+          docker build --platform linux/arm64 -t "$registry/retail-finance-platform-agent:$tag" agent
+          docker push -q "$registry/retail-finance-platform-agent:$tag"
+          echo "Image tag: \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "tag=$tag"

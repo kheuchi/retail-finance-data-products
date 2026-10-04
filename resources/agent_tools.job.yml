@@ -1,0 +1,44 @@
+resources:
+  jobs:
+    agent_tools:
+      name: "[finance] create agent tools"
+      description: >
+        Creates the month-end agents' read-only tools: Unity Catalog SQL functions in
+        finance.agent over store-level Gold tables (story 7.1). Run after each deploy that
+        changes sql/agent_tools.sql. The agent identity can only execute them.
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      timeout_seconds: 1800
+      permissions:
+        - service_principal_name: ${var.runner}
+          level: CAN_MANAGE_RUN
+      tags:
+        CostCenter: finance-data-platform
+        Layer: agent
+
+      job_clusters:
+        - job_cluster_key: finance_jobs
+          new_cluster:
+            policy_id: ${var.jobs_policy_id}
+            apply_policy_default_values: true
+            spark_version: 17.3.x-scala2.13
+            node_type_id: m6gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            single_user_name: ${var.runner}
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: local[*]
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: create_agent_tools
+          job_cluster_key: finance_jobs
+          python_wheel_task:
+            package_name: retail_finance_data
+            entry_point: create_agent_tools
+            parameters: ["--catalog", "${var.catalog}"]
+          libraries:
+            - whl: ../dist/*.whl  # relative to this file, not the repo root
