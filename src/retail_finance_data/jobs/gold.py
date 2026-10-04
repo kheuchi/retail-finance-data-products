@@ -225,8 +225,12 @@ def check_access(grants: list[tuple[str, str, str, str]]) -> list[str]:
 
 
 def grants_visible(grants: list[tuple[str, str, str, str]], me: str) -> bool:
-    """True when the job identity can see grants held by principals other than itself."""
-    return any(principal != me for principal, *_ in grants)
+    """True when the job identity can see other principals' grants on the catalog or a schema.
+
+    Table rows do not count: the runner owns the tables it creates (e.g. ops.model_drift) and
+    sees their grants, which says nothing about who may use the schemas. Counting them made
+    Gold refuse to publish from the second scheduled run on (story 6.2 regression)."""
+    return any(principal != me and otype in ("CATALOG", "SCHEMA") for principal, _, otype, _ in grants)
 
 
 def read_grants(spark, catalog: str) -> list[tuple[str, str, str, str]]:

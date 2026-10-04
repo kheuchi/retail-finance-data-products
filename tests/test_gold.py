@@ -161,3 +161,6 @@ def test_grants_visibility():
     admin_view = [*runner_view, ("finance-analysts", "USE CATALOG", "CATALOG", C)]
     assert not grants_visible(runner_view, "runner-id")
     assert grants_visible(admin_view, "runner-id")
+    # A table the runner created shows its owner-visible grants: still no view of the schemas
+    owns_a_table = [*runner_view, ("finance-data-engineers", "ALL_PRIVILEGES", "TABLE", f"{C}.ops.model_drift")]
+    assert not grants_visible(owns_a_table, "runner-id")
