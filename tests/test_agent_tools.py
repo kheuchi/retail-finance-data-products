@@ -14,13 +14,15 @@ ALLOWED_TABLES = {
     "revenue_forecast",
     "fraud_scores",
 }
+# the certification status is the only non-Gold read (latest row of the quality gate's record)
+ALLOWED_OPS = {"gold_certification"}
 
 
 def body(statement):
     return re.split(r"\nRETURN\n", statement, maxsplit=1)[1]
 
 
-def test_six_functions_in_the_agent_schema():
+def test_seven_functions_in_the_agent_schema():
     names = [re.search(r"FUNCTION\s+(\S+)\(", s).group(1) for s in SQL]
     expected = (
         "close_overview",
@@ -29,6 +31,7 @@ def test_six_functions_in_the_agent_schema():
         "reconciliation_exceptions",
         "revenue_outlook",
         "cashier_case_count",
+        "gold_certification_status",
     )
     assert names == [f"finance.agent.{n}" for n in expected]
 
@@ -37,7 +40,9 @@ def test_read_only_and_only_gold():
     for s in SQL:
         assert not re.search(r"\b(INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|GRANT|CREATE)\b", body(s).upper())
         for table in re.findall(r"finance\.(\w+)\.(\w+)", body(s)):
-            assert table[0] == "gold" and table[1] in ALLOWED_TABLES, table
+            assert (table[0] == "gold" and table[1] in ALLOWED_TABLES) or (
+                table[0] == "ops" and table[1] in ALLOWED_OPS
+            ), table
 
 
 def test_no_cashier_identity_and_no_journal_text_reach_the_agent():

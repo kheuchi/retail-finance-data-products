@@ -102,3 +102,10 @@ RETURNS TABLE (month STRING, cashier_cases_referred BIGINT, cashier_months_score
 COMMENT 'How many cashier-months the refund detector flagged for internal audit. A count only: no cashier or store is identified (R-12).'
 RETURN
   SELECT any_value(m), count_if(flagged), count(*) FROM {catalog}.gold.fraud_scores WHERE month = m
+
+;;
+CREATE OR REPLACE FUNCTION {catalog}.agent.gold_certification_status()
+RETURNS TABLE (certified BOOLEAN, gold_run STRING, certified_at TIMESTAMP)
+COMMENT 'Latest Gold build certification. Read by the agent code (not the model) before every run: no certified Gold, no run.'
+RETURN
+  SELECT certified, run_id, certified_at FROM {catalog}.ops.gold_certification ORDER BY certified_at DESC LIMIT 1

@@ -79,3 +79,16 @@ def test_sync_query_works_inside_a_running_event_loop(monkeypatch):
         return agent_engine.MonthEndAgent().query("2026-08")
 
     assert asyncio.run(caller()) == {"month": "2026-08"}
+
+
+def test_certification_status_parsing():
+    ok = [
+        {
+            "type": "text",
+            "text": '{"columns":["certified","gold_run","certified_at"],"rows":[[true,"r1","2026-10-02"]]}',
+        }
+    ]
+    bad = '{"columns":["certified","gold_run","certified_at"],"rows":[[false,"r2","2026-10-03"]]}'
+    assert main.certification(ok) == {"certified": True, "gold_run": "r1"}
+    assert main.certification(bad)["certified"] is False
+    assert main.certification('{"columns":[],"rows":[]}')["certified"] is False

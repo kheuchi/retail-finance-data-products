@@ -26,6 +26,7 @@ jobs:
     name: Deploy (and optionally run)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    environment: agent-gcp  # a person approves every deployment (review of D-032)
     defaults:
       run:
         working-directory: agent
