@@ -45,3 +45,21 @@ def test_capped_tool_refuses_after_its_limit():
 
 async def _call_three(tool):
     return [await tool.ainvoke({"text": "a"}) for _ in range(3)]
+
+
+def test_final_text_from_claude_or_gemini_messages():
+    class Msg:
+        def __init__(self, content):
+            self.content = content
+
+    assert main.final_text(Msg("done")) == "done"
+    assert main.final_text(Msg([{"type": "text", "text": "a"}, {"type": "text", "text": "b", "extras": {}}])) == "ab"
+
+
+def test_agent_engine_adapter_pickles_without_building_anything():
+    import pickle
+
+    from app.agent_engine import MonthEndAgent
+
+    agent = pickle.loads(pickle.dumps(MonthEndAgent()))
+    assert hasattr(agent, "query") and hasattr(agent, "async_query")

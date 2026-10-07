@@ -1,0 +1,13 @@
+# Google Agent Runtime (Vertex AI Agent Engine) build of the month-end agents (D-032).
+# Installed by Agent Engine at deploy time; Python version must match the deploying runner (3.12).
+deepagents==0.7.21
+langchain==1.4.3
+langgraph==1.2.12
+langchain-google-genai==4.4.0
+langchain-mcp-adapters==0.3.2
+mcp==1.30.0
+mcp-proxy-for-aws==1.7.0
+boto3==1.43.108
+httpx==0.28.1
+google-auth>=2.40
+google-cloud-aiplatform[agent_engines]==2.4.0
