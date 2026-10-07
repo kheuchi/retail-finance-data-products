@@ -63,3 +63,19 @@ def test_agent_engine_adapter_pickles_without_building_anything():
 
     agent = pickle.loads(pickle.dumps(MonthEndAgent()))
     assert hasattr(agent, "query") and hasattr(agent, "async_query")
+
+
+def test_sync_query_works_inside_a_running_event_loop(monkeypatch):
+    import asyncio
+
+    from app import agent_engine
+
+    async def fake_invoke(payload):
+        return {"month": payload.get("month")}
+
+    monkeypatch.setattr(main, "invoke", fake_invoke)
+
+    async def caller():  # Agent Runtime calls query() from inside its own loop
+        return agent_engine.MonthEndAgent().query("2026-08")
+
+    assert asyncio.run(caller()) == {"month": "2026-08"}
