@@ -8,6 +8,7 @@ query by ``app.main``, exactly as on AgentCore.
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 
 class MonthEndAgent:
@@ -20,4 +21,7 @@ class MonthEndAgent:
         return await invoke({"month": month} if month else {})
 
     def query(self, month: str | None = None) -> dict:
-        return asyncio.run(self.async_query(month))
+        # Agent Runtime calls this from inside its own event loop: run the agent in a fresh
+        # thread with its own loop (asyncio.run cannot nest).
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, self.async_query(month)).result()

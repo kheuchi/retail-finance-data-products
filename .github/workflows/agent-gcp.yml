@@ -55,5 +55,6 @@ jobs:
         env:
           MONTH: ${{ inputs.run_month }}
         run: |
+          set -o pipefail
           [[ "$MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]] || { echo "month must be YYYY-MM"; exit 1; }
           python run_gcp.py "$MONTH" | tee -a "$GITHUB_STEP_SUMMARY"
