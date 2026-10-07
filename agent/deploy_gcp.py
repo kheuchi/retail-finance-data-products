@@ -40,6 +40,7 @@ def main() -> None:
         env_vars=env_vars,
         service_account=e["GCP_RUNTIME_SA"],
         display_name=DISPLAY_NAME,
+        min_instances=0,  # nothing kept warm between month-end runs
         description="Month-end close agents (story 7.1): Deep Agents supervisor + sub-agents, Gemini on Vertex AI EU.",
     )
     existing = list(agent_engines.list(filter=f'display_name="{DISPLAY_NAME}"'))

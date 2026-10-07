@@ -150,6 +150,16 @@ def capped(tool, limit: int):
     )
 
 
+def certification(result) -> dict:
+    """Parse the gold_certification_status tool result (MCP text content holding JSON rows)."""
+    text = result if isinstance(result, str) else "".join(b.get("text", "") for b in result if isinstance(b, dict))
+    data = json.loads(text)
+    if not data.get("rows"):
+        return {"certified": False, "gold_run": None}
+    row = dict(zip(data["columns"], data["rows"][0], strict=True))
+    return {"certified": row.get("certified") in (True, "true"), "gold_run": row.get("gold_run")}
+
+
 def final_text(message) -> str:
     """Plain text of the last message (Gemini returns content blocks, Claude a string)."""
     content = message.content
@@ -219,6 +229,11 @@ async def build_agent():
     if missing:
         raise RuntimeError(f"tools not offered by the MCP servers: {sorted(missing)}; got {sorted(tools)}")
     tools = {name: capped(t, CALL_LIMITS[name]) if name in CALL_LIMITS else t for name, t in tools.items()}
+    # Checked by code, not by the model: no certified Gold, no run (Gold tables are written
+    # before the last quality gate, so a failed gate leaves uncertified Gold readable).
+    status = certification(await tools.pop("gold_certification_status").ainvoke({}))
+    if not status["certified"]:
+        raise RuntimeError(f"latest Gold build is not certified ({status}): the agents run on certified Gold only")
     model = make_model()
     subagents = [
         {
@@ -230,14 +245,15 @@ async def build_agent():
         for name, (desc, prompt, names) in SUBAGENTS.items()
     ]
     supervisor_tools = [tools[t] for t in ("list_drafts", "close_overview") if t in tools]
-    return create_deep_agent(
+    agent = create_deep_agent(
         model=model, tools=supervisor_tools, system_prompt=SUPERVISOR, subagents=subagents, name="month-end-close"
-    ), sorted(tools)
+    )
+    return agent, sorted(tools), status["gold_run"]
 
 
 async def invoke(payload: dict) -> dict:
     month = payload.get("month") or last_complete_month()
-    agent, tool_names = await build_agent()
+    agent, tool_names, gold_run = await build_agent()
     started = time.time()
     result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": f"Run the month-end close for {month}."}]},
@@ -253,6 +269,7 @@ async def invoke(payload: dict) -> dict:
         calls += [c["name"] for c in getattr(msg, "tool_calls", []) or []]
     return {
         "month": month,
+        "gold_run": gold_run,
         "model": f"{MODEL_PROVIDER}:{MODEL_ID}",
         "tools_available": tool_names,
         "tool_calls": calls,
