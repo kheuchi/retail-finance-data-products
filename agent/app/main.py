@@ -30,6 +30,12 @@ from langchain_core.tools import StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from mcp_proxy_for_aws.sigv4_helper import SigV4HTTPXAuth
 
+# Agent Runtime's container sets some CA-bundle variables to an empty string; boto3 rejects
+# that ("Invalid CA bundle"). An empty value means "unset": use the default trust store.
+for _var in ("AWS_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE"):
+    if _var in os.environ and not os.environ[_var].strip():
+        del os.environ[_var]
+
 REGION = os.environ.get("AWS_REGION", "eu-central-1")
 MODEL_PROVIDER = os.environ.get("MODEL_PROVIDER", "bedrock")  # bedrock | vertex
 MODEL_ID = os.environ.get("MODEL_ID", "eu.anthropic.claude-sonnet-5")
