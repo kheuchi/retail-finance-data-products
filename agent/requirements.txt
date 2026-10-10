@@ -1,7 +1,7 @@
 # Pinned by uv pip freeze for Python 3.12 (story 7.1). Rebuild: uv pip install deepagents langchain-aws langchain-mcp-adapters bedrock-agentcore mcp-proxy-for-aws && uv pip freeze
 aiofile==3.12.3
 annotated-types==0.8.0
-anthropic==1.11.0
+anthropic==1.12.0
 anyio==4.15.1
 attrs==26.1.0
 authlib==1.8.0
