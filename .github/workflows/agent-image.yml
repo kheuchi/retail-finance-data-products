@@ -6,7 +6,7 @@ name: Agent image
 on:
   push:
     branches: [main]
-    paths: ["agent/**", ".github/workflows/agent-image.yml"]
+    paths: ["agents/month_end_close/**", ".github/workflows/agent-image.yml"]
   workflow_dispatch:
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
           if aws ecr describe-images --region eu-central-1 --repository-name retail-finance-platform-agent --image-ids imageTag="$tag" >/dev/null 2>&1; then
             echo "Image $tag already in ECR (tags are immutable)"; echo "Image tag: \`$tag\` (existing)" >> "$GITHUB_STEP_SUMMARY"; exit 0
           fi
-          docker build --platform linux/arm64 -t "$registry/retail-finance-platform-agent:$tag" agent
+          docker build --platform linux/arm64 -t "$registry/retail-finance-platform-agent:$tag" agents/month_end_close
           docker push -q "$registry/retail-finance-platform-agent:$tag"
           echo "Image tag: \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
           echo "tag=$tag"

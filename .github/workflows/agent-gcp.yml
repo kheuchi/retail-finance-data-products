@@ -5,7 +5,7 @@ name: Agent on Google Agent Runtime
 on:
   push:
     branches: [main]
-    paths: ["agent/**", ".github/workflows/agent-gcp.yml"]
+    paths: ["agents/month_end_close/**", ".github/workflows/agent-gcp.yml"]
   workflow_dispatch:
     inputs:
       run_month:
@@ -29,7 +29,7 @@ jobs:
     environment: agent-gcp  # a person approves every deployment (review of D-032)
     defaults:
       run:
-        working-directory: agent
+        working-directory: agents/month_end_close
     env:
       GCP_PROJECT: ${{ vars.GCP_PROJECT }}
       GCP_STAGING_BUCKET: ${{ vars.GCP_STAGING_BUCKET }}
@@ -48,9 +48,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install deploy dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements-gcp.txt
+        run: python -m pip install --disable-pip-version-check -r requirements-google.txt
       - name: Deploy to Agent Runtime
-        run: python deploy_gcp.py
+        run: python deploy_google.py
       - name: Run the close
         if: inputs.run_month != ''
         env:
@@ -58,4 +58,4 @@ jobs:
         run: |
           set -o pipefail
           [[ "$MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]] || { echo "month must be YYYY-MM"; exit 1; }
-          python run_gcp.py "$MONTH" | tee -a "$GITHUB_STEP_SUMMARY"
+          python run_google.py "$MONTH" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -10,14 +10,14 @@ try:
 except ImportError:  # the generator tests still run without pyspark
     SparkSession = None
 
-from test_generator import SMALL
+from small_dataset import SMALL
 
-from retail_finance_data.jobs.generate import write_all
+from retail_finance_data.source_simulator.write_landing_files import write_all
 
 
 def build_all(bronze, override=None):
     """Run every Silver source in job order; ``override`` swaps in a modified Bronze DataFrame."""
-    from retail_finance_data.jobs.silver import ORDER, SPECS, apply_spec, count_stats, daily_fx
+    from retail_finance_data.silver.build import ORDER, SPECS, apply_spec, count_stats, daily_fx
 
     override = override or {}
     built, fx, stats, quarantine = {}, None, {}, {}
@@ -63,7 +63,7 @@ def landing(tmp_path_factory):
 @pytest.fixture(scope="session")
 def bronze(spark, landing):
     """Bronze as Auto Loader leaves it: every column a string, plus the audit columns."""
-    from retail_finance_data.jobs.silver import ORDER
+    from retail_finance_data.silver.build import ORDER
 
     return {
         s: spark.read.option("header", "true")

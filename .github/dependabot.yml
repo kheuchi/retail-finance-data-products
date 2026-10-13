@@ -6,3 +6,6 @@ updates:
   - package-ecosystem: pip
     directory: /
     schedule: {interval: weekly}
+  - package-ecosystem: pip  # the agent's pinned requirements (AgentCore and Google)
+    directory: /agents/month_end_close
+    schedule: {interval: weekly}

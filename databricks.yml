@@ -5,7 +5,7 @@ bundle:
   name: retail-finance-data-products
 
 include:
-  - resources/*.yml
+  - databricks_jobs/*.job.yml  # one file per job, numbered in pipeline order
 
 artifacts:
   # The package is built into a wheel and installed on the job cluster from the
