@@ -60,7 +60,7 @@ langchain-google-genai==4.4.0
 langchain-mcp-adapters==0.3.2
 langchain-protocol==0.0.19
 langgraph==1.2.12
-langgraph-checkpoint==4.2.0
+langgraph-checkpoint==4.3.0
 langgraph-prebuilt==1.1.0
 langgraph-sdk==0.4.5
 langsmith==0.14.4
