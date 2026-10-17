@@ -60,14 +60,14 @@ pipeline:
   landing: "Unity Catalog volume on the governed bucket (raw files)"
   bronze: "Auto Loader, append-only, schema captured"
   silver:
-    job: "transform_silver (resources/silver.job.yml), entry point build_silver; full rebuild from Bronze on every run"
-    rules: "per-source Spec in jobs/silver.py: types (try_cast), business key, required columns, SQL rules, references, EUR conversion"
+    job: "transform_silver (databricks_jobs/03_build_silver.job.yml), entry point build_silver; full rebuild from Bronze on every run"
+    rules: "per-source Spec in silver/build.py: types (try_cast), business key, required columns, SQL rules, references, EUR conversion"
     quarantine: "finance.silver.quarantine: source, record_key, reasons, original record as JSON; rebuilt per source"
     fx: "finance.silver.fx_daily: ECB rate per currency and day, last published rate carried over weekends and holidays; EUR = 1"
     invariant: "bronze = silver + quarantined + duplicates, per source; the job fails otherwise"
     story: "control plane docs/stories/4.1-silver-tables.md"
   gold:
-    job: "build_gold (resources/gold.job.yml); first task reconcile_gl_pos, entry point reconcile_gl_pos"
+    job: "build_gold (databricks_jobs/04_reconcile_and_build_gold.job.yml); first task reconcile_gl_pos, entry point reconcile_gl_pos"
     reconciliation: "gold.recon_gl_pos (store x day), gold.recon_gl_pos_monthly, gold.recon_exceptions; GL account 4000 vs POS net EUR (lines converted unrounded, day rounded once); tolerance EUR 0.01"
     attribution: "by amount, not label: no POS -> every revenue journal unsupported; one journal equals POS -> the others unsupported; several equal POS -> all reported as duplicate posting; none -> day reported, no journal blamed"
     guards: "refuses to write when POS or revenue lines are empty, an FX rate is missing, or pos_sales/gl_journal rows sit in silver.quarantine"
@@ -93,8 +93,8 @@ pipeline:
     story: "control plane docs/stories/4.2-gl-pos-reconciliation.md"
   deploy: "Databricks Asset Bundle from GitHub Actions, service principal auth"
   orchestration:
-    job: "finance_pipeline (resources/pipeline.job.yml): run_job tasks ingest_bronze -> transform_silver -> build_gold -> train_models; a failed step stops the rest"
-    ingest: "ingest_bronze (resources/ingest_bronze.job.yml): Auto Loader only, no generation; adds nothing when no new file landed"
+    job: "finance_pipeline (databricks_jobs/00_finance_pipeline.job.yml): run_job tasks ingest_bronze -> transform_silver -> build_gold -> train_models; a failed step stops the rest"
+    ingest: "ingest_bronze (databricks_jobs/02_ingest_bronze.job.yml): Auto Loader only, no generation; adds nothing when no new file landed"
     failures: "no automatic retries (a retry reruns a whole child job); email, then repair run; queueing on all jobs; overall timeout 5 h; ML refuses Gold rewritten after its certification"
     alerts: "email on failure and on runs over 2 h, to var.alert_email (GitHub secret ALERT_EMAIL -> BUNDLE_VAR_alert_email; not in Git)"
     schedule: "daily 06:00 Europe/Berlin; pause_status = var.schedule_pause_status, default PAUSED (owner decision 2026-10-01)"
@@ -106,7 +106,7 @@ pipeline:
 
 # ──────────── ml ────────────
 ml:
-  job: "train_models (resources/ml.job.yml), entry point train_models; reads certified Gold only (latest ops.gold_certification row)"
+  job: "train_models (databricks_jobs/05_train_ml_models.job.yml), entry point train_models; reads certified Gold only (latest ops.gold_certification row)"
   experiment: "bundle resource finance_ml at the deployer's workspace home; runner CAN_MANAGE"
   registry: "Unity Catalog finance.ml: fraud_cashier_refunds, fraud_store_margin, revenue_forecast (only if the model wins)"
   fraud_cashier: "IsolationForest (contamination 0.005) on cashier-month features vs store peers; scores in gold.fraud_scores"

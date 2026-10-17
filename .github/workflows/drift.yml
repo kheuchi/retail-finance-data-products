@@ -36,4 +36,4 @@ jobs:
       - name: Plan against the workspace
         run: databricks bundle plan -t prod -o json > plan.json
       - name: Fail on any pending change
-        run: PYTHONPATH=src python -m retail_finance_data.config_drift plan.json
+        run: PYTHONPATH=src python -m retail_finance_data.ops.config_drift plan.json

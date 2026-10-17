@@ -51,16 +51,39 @@ the reconciliation and the models.
 
 ## Layout
 
-> **TL;DR:** code in `src/`, tests in `tests/`, jobs in `resources/`.
+> **TL;DR:** one folder per pipeline stage; the folder name says what it does; tests mirror the code.
 
-| Path | What |
-|---|---|
-| `src/retail_finance_data/generator.py` | The synthetic data model |
-| `src/retail_finance_data/jobs/` | `generate`, `bronze`, `silver`, `reconcile`, `gold`, `quality` entry points |
-| `resources/*.job.yml` | Job definitions (cluster, tasks, policy) |
-| `databricks.yml` | The bundle: build, target workspace, run-as |
-| `tests/` | Generator properties and Silver rules on local Spark |
-| `cmdb.yml` | Inventory: sources, anomalies, volumes, pipeline, tests, toolchain, status |
+```
+retail-finance-data-products/
+├── databricks.yml                 bundle: target workspace, run-as, variables
+├── databricks_jobs/               one file per Databricks job, numbered in pipeline order
+│   ├── 00_finance_pipeline        orchestrator: runs 02 → 03 → 04 → 05 on a schedule
+│   ├── 01_generate_source_files   simulated SAP / POS / budget files into the landing volume
+│   ├── 02_ingest_bronze           Auto Loader: files as delivered → Bronze
+│   ├── 03_build_silver            typed, checked, quarantined → Silver
+│   ├── 04_reconcile_and_build_gold quality gate → GL vs POS reconciliation → Gold → quality gate
+│   ├── 05_train_ml_models         fraud detectors, forecast, PSI drift (+ the MLflow experiment)
+│   └── 06_publish_agent_tools     the agent's Unity Catalog SQL functions
+├── src/retail_finance_data/       the wheel installed on every job cluster
+│   ├── source_simulator/          synthetic data model, holidays, ECB rates snapshot
+│   ├── bronze/                    ingest.py
+│   ├── silver/                    build.py (per-source rules)
+│   ├── gold/                      reconcile_gl_pos.py, build_tables.py
+│   ├── data_quality/              quality_gate.py (checks, certification, lineage)
+│   ├── ml/                        train_models.py, psi_drift.py
+│   ├── agent_tools/               functions.sql + publish.py
+│   └── ops/                       config_drift.py (deployed jobs vs Git)
+├── agents/month_end_close/        the month-end agents (Deep Agents)
+│   ├── month_end_agent/           supervisor, sub-agents, tools; google_agent_runtime.py adapter
+│   ├── deploy_google.py, run_google.py   deploy to / run on Google Agent Runtime
+│   ├── Dockerfile                 image for AgentCore Runtime (designed target)
+│   └── requirements-agentcore.txt, requirements-google.txt
+├── tests/                         mirrors src/ (local Spark, Java 17); small_dataset.py is shared
+└── cmdb.yml                       inventory: sources, anomalies, pipeline, tests, toolchain, status
+```
+
+Job entry points (`pyproject.toml` → `[project.scripts]`) keep their names, so the job files only
+point at a script name, never at a module path.
 
 ## Run it
 
@@ -68,7 +91,7 @@ the reconciliation and the models.
 
 ```bash
 pip install -e ".[dev]" && pytest                                # tests incl. local Spark (needs Java 17)
-python -m retail_finance_data.jobs.generate --out /tmp/landing   # full dataset locally (~2 min, ~480 MB)
+python -m retail_finance_data.source_simulator.write_landing_files --out /tmp/landing  # full dataset (~2 min, ~480 MB)
 ```
 
 To deploy: **Actions → Deploy to Databricks** → type `deploy`, pick a job to run
