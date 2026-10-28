@@ -32,6 +32,16 @@ where = ["src"]
 "retail_finance_data.source_simulator" = ["reference/*.csv"]
 "retail_finance_data.agent_tools" = ["*.sql"]
 
+[tool.semantic_release]
+# The release workflow tags main; the tag is the version (project.version above is not bumped).
+tag_format = "v{version}"
+commit_parser = "conventional"
+allow_zero_version = false # first release is 1.0.0: what runs today
+major_on_zero = false
+
+[tool.semantic_release.branches.main]
+match = "main"
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
