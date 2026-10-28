@@ -1,0 +1,37 @@
+name: Release
+
+# Every merge to main gets a version from its conventional-commit titles (feat: minor, fix: patch,
+# "!" or BREAKING CHANGE: major), a tag and a GitHub release with notes. Nothing is committed back:
+# main is protected, so the tag is the version (story 6.3).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Tag and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the tag and the release
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0 # the whole history: the version comes from the commits since the last tag
+      - name: Version, tag and release
+        uses: python-semantic-release/python-semantic-release@9a026e9303981c866c3425723009becb2437c757 # v10.6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          commit: "false"
+          changelog: "false"
+          tag: "true"
+          push: "true"
+          vcs_release: "true"
